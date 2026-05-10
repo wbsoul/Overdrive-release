@@ -40,6 +40,24 @@ public class SurveillanceIpcServer implements Runnable {
         abrpService = service;
     }
 
+    /**
+     * Reset path used by the bulk Reset Data feature: deletes the ABRP token,
+     * persists the change, and stops the running telemetry service so cached
+     * RAM credentials don't keep uploading after the user wiped them.
+     * Mirrors the proven sequence in {@link #handleDeleteAbrpToken}.
+     *
+     * @return true if the reset ran (token cleared + persisted)
+     */
+    public static boolean resetAbrpForBulkWipe() {
+        if (abrpConfig == null) return false;
+        abrpConfig.deleteToken();
+        abrpConfig.save();
+        if (abrpService != null && abrpService.isRunning()) {
+            abrpService.stop();
+        }
+        return true;
+    }
+
     // MQTT integration reference (set by CameraDaemon)
     private static volatile com.overdrive.app.mqtt.MqttConnectionManager mqttManager;
 
@@ -461,12 +479,24 @@ public class SurveillanceIpcServer implements Runnable {
                 // Persist to unified config so ACC OFF respects user preference
                 com.overdrive.app.config.UnifiedConfigManager.setSurveillanceEnabled(enabled);
                 if (enabled) {
-                    CameraDaemon.enableSurveillance();
-                    logger.info("Surveillance enabled via IPC");
+                    // RACE CONDITION FIX: Only enable surveillance if ACC is actually OFF.
+                    // AccSentryDaemon's retry loop may send this IPC after ACC turned ON.
+                    if (!com.overdrive.app.monitor.AccMonitor.isAccOn()) {
+                        CameraDaemon.enableSurveillance();
+                        logger.info("Surveillance enabled via IPC");
+                    } else {
+                        logger.info("Surveillance preference saved via IPC — but ACC is ON, not activating");
+                    }
                 } else {
                     CameraDaemon.disableSurveillance();
                     logger.info("Surveillance disabled via IPC");
                 }
+            }
+            
+            // Stop surveillance without persisting preference (battery protection, session stop)
+            if (config.has("stopSurveillance") && config.getBoolean("stopSurveillance")) {
+                CameraDaemon.disableSurveillance();
+                logger.info("Surveillance stopped via IPC (preference preserved)");
             }
             
             // Handle ACC state if provided
@@ -814,6 +844,7 @@ public class SurveillanceIpcServer implements Runnable {
             }
             
             // Per-camera enable/disable
+            // Quadrant mapping: Q0=front, Q1=right, Q2=rear, Q3=left
             if (config.has("cameraFront")) {
                 boolean enabled = config.optBoolean("cameraFront", true);
                 sentryConfig.setCameraEnabled(0, enabled);
@@ -826,14 +857,14 @@ public class SurveillanceIpcServer implements Runnable {
                 if (sentry != null) sentry.setV2QuadrantEnabled(1, enabled);
                 configChanged = true;
             }
-            if (config.has("cameraLeft")) {
-                boolean enabled = config.optBoolean("cameraLeft", true);
+            if (config.has("cameraRear")) {
+                boolean enabled = config.optBoolean("cameraRear", true);
                 sentryConfig.setCameraEnabled(2, enabled);
                 if (sentry != null) sentry.setV2QuadrantEnabled(2, enabled);
                 configChanged = true;
             }
-            if (config.has("cameraRear")) {
-                boolean enabled = config.optBoolean("cameraRear", true);
+            if (config.has("cameraLeft")) {
+                boolean enabled = config.optBoolean("cameraLeft", true);
                 sentryConfig.setCameraEnabled(3, enabled);
                 if (sentry != null) sentry.setV2QuadrantEnabled(3, enabled);
                 configChanged = true;
@@ -1133,6 +1164,9 @@ public class SurveillanceIpcServer implements Runnable {
         json.put("isCritical", data.isCritical);
         json.put("status", data.getStatus());
         json.put("isPureEV", data.isPureEV());
+        if (data.hasFuelPercent()) {
+            json.put("fuelPercent", data.fuelPercent);
+        }
         json.put("timestamp", data.timestamp);
         return json;
     }

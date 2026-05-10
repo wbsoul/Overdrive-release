@@ -238,7 +238,12 @@ public class HttpServer {
             String rangeHeader = null;
             String cookieHeader = null;
             String authHeader = null;
-            
+            // Reverse-proxy fingerprints — used by AuthMiddleware to disable
+            // the loopback safety net when a tunnel relayed the request.
+            // Cloudflared injects Cf-*, zrok / ngrok injects X-Forwarded-*.
+            boolean hasTunnelHeaders = false;
+            String forwardedFor = null;
+
             while ((line = reader.readLine()) != null && !line.isEmpty()) {
                 String lower = line.toLowerCase();
                 if (lower.startsWith("content-length:")) {
@@ -253,6 +258,17 @@ public class HttpServer {
                     cookieHeader = line.substring(7).trim();
                 } else if (lower.startsWith("authorization:")) {
                     authHeader = line.substring(14).trim();
+                } else if (lower.startsWith("x-forwarded-for:")) {
+                    hasTunnelHeaders = true;
+                    forwardedFor = line.substring(16).trim();
+                } else if (lower.startsWith("x-forwarded-proto:")
+                        || lower.startsWith("x-forwarded-host:")
+                        || lower.startsWith("x-real-ip:")
+                        || lower.startsWith("forwarded:")
+                        || lower.startsWith("cf-connecting-ip:")
+                        || lower.startsWith("cf-ray:")
+                        || lower.startsWith("cf-visitor:")) {
+                    hasTunnelHeaders = true;
                 }
             }
             
@@ -282,24 +298,52 @@ public class HttpServer {
             String path = parts[1];
             
             // Extend timeout for slow BYD cloud API calls (login + verify can take 10-15s)
-            if (path.startsWith("/api/bydcloud")) {
+            if (path.startsWith("/api/bydcloud") || path.startsWith("/api/vehicle/lock") || 
+                path.startsWith("/api/vehicle/unlock") || path.startsWith("/api/vehicle/flash")) {
                 client.setSoTimeout(60000);
             }
             
-            // WebSocket upgrade on /ws path (check auth first for non-public paths)
-            if (path.equals("/ws") && websocketKey != null && "websocket".equalsIgnoreCase(upgradeHeader)) {
-                // Check auth for WebSocket
-                if (!AuthMiddleware.checkAuth(path, cookieHeader, authHeader, out)) {
+            // WebSocket upgrade on /ws path (check auth first for non-public paths).
+            // Match /ws and /ws?... (query params allow JWT-as-?token= since browser
+            // WebSocket clients can't set arbitrary headers — cookies may be dropped
+            // through tunnels' SameSite policies).
+            String wsPathOnly = path.contains("?") ? path.substring(0, path.indexOf("?")) : path;
+            if (wsPathOnly.equals("/ws") && websocketKey != null && "websocket".equalsIgnoreCase(upgradeHeader)) {
+                // Promote ?token= query param into a synthetic Authorization header
+                // so AuthMiddleware's existing Bearer-token path handles it.
+                String wsAuthHeader = authHeader;
+                if (wsAuthHeader == null && path.contains("?")) {
+                    String query = path.substring(path.indexOf("?") + 1);
+                    for (String param : query.split("&")) {
+                        int eq = param.indexOf('=');
+                        if (eq > 0 && "token".equals(param.substring(0, eq))) {
+                            wsAuthHeader = "Bearer " + java.net.URLDecoder.decode(
+                                param.substring(eq + 1), "UTF-8");
+                            break;
+                        }
+                    }
+                }
+                if (!AuthMiddleware.checkAuth(wsPathOnly, cookieHeader, wsAuthHeader, out,
+                        client.getRemoteSocketAddress(), hasTunnelHeaders)) {
                     client.close();
                     return;
                 }
                 handleWebSocketUpgrade(client, websocketKey);
                 return;
             }
-            
-            // Route auth endpoints first (before auth check - they're public)
+
+            // Route auth endpoints (all public). The /auth/token endpoint is
+            // rate-limited by client identity (real IP via X-Forwarded-For if
+            // present, else socket) to slow brute-force attempts via tunnels.
             if (path.startsWith("/auth/")) {
-                AuthApiHandler.handle(method, path, body, out);
+                String identity;
+                if (forwardedFor != null && !forwardedFor.isEmpty()) {
+                    int comma = forwardedFor.indexOf(',');
+                    identity = (comma > 0 ? forwardedFor.substring(0, comma) : forwardedFor).trim();
+                } else {
+                    identity = String.valueOf(client.getRemoteSocketAddress());
+                }
+                AuthApiHandler.handle(method, path, body, out, identity);
                 client.close();
                 return;
             }
@@ -314,8 +358,19 @@ public class HttpServer {
                 return;
             }
             
+            // Handle CORS preflight (OPTIONS) requests for cross-origin webapp access.
+            // Browsers send OPTIONS before POST/PUT/DELETE with Content-Type: application/json.
+            // The in-app WebView is same-origin so it skips this, but the external webapp needs it.
+            // Must be handled BEFORE auth check — preflight requests don't carry cookies/tokens.
+            if (method.equals("OPTIONS")) {
+                HttpResponse.sendCorsPreflightResponse(out);
+                client.close();
+                return;
+            }
+            
             // Check authentication for all other paths
-            if (!AuthMiddleware.checkAuth(path, cookieHeader, authHeader, out)) {
+            if (!AuthMiddleware.checkAuth(path, cookieHeader, authHeader, out,
+                    client.getRemoteSocketAddress(), hasTunnelHeaders)) {
                 client.close();
                 return;
             }
@@ -358,8 +413,18 @@ public class HttpServer {
                 if (!serveStaticFile(out, "local/trips.html")) {
                     HttpResponse.sendError(out, 404, "trips.html not found");
                 }
+            } else if (path.equals("/vehicle-control.html") || path.equals("/vehicle-control")) {
+                if (!serveStaticFile(out, "local/vehicle-control.html")) {
+                    HttpResponse.sendError(out, 404, "vehicle-control.html not found");
+                }
             } else if (path.startsWith("/shared/") || path.startsWith("/local/")) {
+                // Strip ?query and #fragment so cache-busting versions like
+                // ?v=12 resolve to the same file on disk.
                 String filePath = path.substring(1);
+                int q = filePath.indexOf('?');
+                if (q >= 0) filePath = filePath.substring(0, q);
+                int h = filePath.indexOf('#');
+                if (h >= 0) filePath = filePath.substring(0, h);
                 if (!serveStaticFile(out, filePath)) {
                     HttpResponse.sendError(out, 404, "Not Found: " + path);
                 }
@@ -429,7 +494,7 @@ public class HttpServer {
         // Recordings API (with Range header support for video seeking) + thumbnails + event timelines
         if (path.startsWith("/api/recordings") || path.startsWith("/video/") || 
             path.startsWith("/thumb/") || path.startsWith("/api/events/")) {
-            return RecordingsApiHandler.handleWithRange(method, path, rangeHeader, out);
+            return RecordingsApiHandler.handleWithRange(method, path, body, rangeHeader, out);
         }
         
         // Surveillance API
@@ -492,6 +557,16 @@ public class HttpServer {
             }
         }
         
+        // Audio Test API (AVAS speaker test)
+        if (path.startsWith("/api/audio/")) {
+            return AudioTestApiHandler.handle(method, path, body, out);
+        }
+
+        // Vehicle Control API
+        if (path.startsWith("/api/vehicle")) {
+            return VehicleControlApiHandler.handle(method, path, body, out);
+        }
+        
         // Performance API
         if (path.startsWith("/api/performance")) {
             return PerformanceApiHandler.handle(method, path, body, out);
@@ -539,6 +614,10 @@ public class HttpServer {
         JSONObject status = new JSONObject();
         status.put("status", "ok");
         status.put("deviceId", CameraDaemon.getDeviceId());
+        
+        // App version — read from persisted version file (written by AppUpdater)
+        // Falls back to BuildConfig.VERSION_NAME if file doesn't exist yet
+        status.put("appVersion", com.overdrive.app.updater.AppUpdater.getDisplayVersionFromFile());
         status.put("recording", TcpCommandServer.getRecordingCameras());
         status.put("viewing", TcpCommandServer.getViewOnlyCameras());
         status.put("active", TcpCommandServer.getActiveCameras());
@@ -569,6 +648,9 @@ public class HttpServer {
                 charging.put("chargingPowerKW", chargingState.chargingPowerKW);
                 charging.put("isDischarging", chargingState.isDischarging);
                 charging.put("isError", chargingState.isError);
+                // Surface the "estimated from SOC rate" flag so the UI can show
+                // a "~" prefix on the kW value (core.js already reads this).
+                charging.put("isEstimated", chargingState.isEstimated);
                 status.put("charging", charging);
             }
             
@@ -591,6 +673,12 @@ public class HttpServer {
                 range.put("isLow", rangeData.isLow);
                 range.put("isCritical", rangeData.isCritical);
                 range.put("status", rangeData.getStatus());
+                // Only emit fuelPercent for PHEVs — BEVs leave fuelPercent NaN
+                // upstream (BydDataCollector gates on nominal capacity < 30 kWh),
+                // so the web UI's `if (fuelPct > 0)` guard hides the fuel card.
+                if (rangeData.hasFuelPercent()) {
+                    range.put("fuelPercent", rangeData.fuelPercent);
+                }
                 status.put("range", range);
             }
         } catch (Exception e) {
@@ -620,7 +708,8 @@ public class HttpServer {
                     String sohStr = props.getProperty("soh_percent");
                     if (sohStr != null) {
                         double sohVal = Double.parseDouble(sohStr);
-                        if (sohVal > 0 && sohVal <= 110) {
+                        // Reject out-of-range values (e.g. 101 from bogus BMS sentinels)
+                        if (sohVal > 0 && sohVal <= 100) {
                             soh.put("percent", Math.round(sohVal * 10) / 10.0);
                             hasSoh = true;
                         }
@@ -753,8 +842,11 @@ public class HttpServer {
         if (path.endsWith(".wasm")) return "application/wasm";
         if (path.endsWith(".png")) return "image/png";
         if (path.endsWith(".jpg") || path.endsWith(".jpeg")) return "image/jpeg";
+        if (path.endsWith(".webp")) return "image/webp";
         if (path.endsWith(".svg")) return "image/svg+xml";
         if (path.endsWith(".ico")) return "image/x-icon";
+        if (path.endsWith(".glb")) return "model/gltf-binary";
+        if (path.endsWith(".gltf")) return "model/gltf+json";
         return "application/octet-stream";
     }
 

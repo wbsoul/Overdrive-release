@@ -94,8 +94,37 @@ public class CameraDaemon {
     // queue the request and apply it once the pipeline initializes
     private static volatile boolean pendingAccOff = false;
     
+    // ==================== DOOR LOCK GATE (surveillance arm/disarm) ====================
+    // Lock detection runs in CameraDaemon's process where cloud MQTT is active.
+    // Surveillance is only armed after doors are locked (reduces false triggers from owner exiting).
+    private static volatile boolean doorLockListenerArmed = false;
+
+    // Three parallel lock-event sources, all active simultaneously while the
+    // gate is open. Cloud is fragile in the field (rarely fires lock events
+    // even when MQTT is healthy), so device-SDK and polling exist as
+    // independent backups rather than as a fallback chain.
+    private static com.overdrive.app.byd.cloud.BydCloudDataProvider.CloudLockStateListener cloudLockListener = null;
+    private static com.overdrive.app.byd.BydDataCollector.DoorLockListener deviceLockSubscriber = null;
+    private static Thread unlockPollThread = null;
+    // Reverse watchdog: periodically queries hardware ACC state and force-
+    // disables surveillance if ACC went ON without an event reaching us.
+    // Symmetric counterpart to the ACC-OFF DoorLockTimeout that force-arms.
+    private static Thread accOnDisarmWatchdog = null;
+    private static final long ACC_ON_DISARM_POLL_INTERVAL_MS = 5_000;
+    private static final long DOOR_LOCK_ARM_TIMEOUT_MS = 60_000;  // 60s grace period
+    private static final long UNLOCK_POLL_INTERVAL_MS = 5_000;
+    private static final int DOOR_STATE_INVALID = 0;
+    private static final int DOOR_STATE_UNLOCK = 1;
+    private static final int DOOR_STATE_LOCK = 2;
+    
     // ==================== RECORDING MODE MANAGER ====================
     private static com.overdrive.app.recording.RecordingModeManager recordingModeManager;
+    
+    // ==================== AVC HAL KEEP-ALIVE ====================
+    // Keeps com.byd.avc alive while ACC is ON and pipeline is running.
+    // Prevents BYD system from killing the camera app, which destabilizes
+    // the HAL and causes "no video signal" on the native DVR.
+    private static com.overdrive.app.camera.AvcHalWarmup avcHalWarmup;
     
     // ==================== STREAM MODE ====================
     public static final String STREAM_MODE_PRIVATE = "private";  // Local H.264 only
@@ -157,6 +186,13 @@ public class CameraDaemon {
             log("ACC ON: BydDataCollector re-initialized (" + collector.getData().availableDevices.length + " devices)");
         } catch (Exception e) {
             log("ACC ON: BydDataCollector re-init failed: " + e.getMessage());
+        }
+
+        // Start BYD Cloud MQTT subscriber (if credentials configured)
+        try {
+            com.overdrive.app.byd.cloud.BydCloudDataProvider.getInstance().startSubscriberIfConfigured();
+        } catch (Exception e) {
+            log("Cloud subscriber start failed: " + e.getMessage());
         }
         
         // Re-init GearMonitor with valid context
@@ -226,7 +262,33 @@ public class CameraDaemon {
         
         // SOTA: Fix storage permissions so UI app can read recordings
         // Note: StorageManager constructor will auto-mount SD card if configured
-        com.overdrive.app.storage.StorageManager.getInstance().fixAllPermissions();
+        com.overdrive.app.storage.StorageManager storageManager =
+            com.overdrive.app.storage.StorageManager.getInstance();
+        storageManager.fixAllPermissions();
+
+        // Start the SD-card mount watchdog at daemon boot (instead of only on
+        // ACC OFF). The watchdog no-ops when no storage type is set to SD, so
+        // it's safe to start unconditionally — but it must run continuously
+        // because BYD/Android can unmount the SD card at any time, including
+        // while ACC is ON. Stopping it on ACC ON (the previous behavior) left
+        // a hole where the HTTP server returned empty recordings until the
+        // user cycled ACC OFF→ON.
+        storageManager.startSdCardWatchdog();
+
+        // Touch the OEM-dashcam cleaner singleton so its constructor runs
+        // and (if enabled in saved config) auto-starts the periodic monitor.
+        // Without this the cleaner is lazy-initialized on first UI/API hit,
+        // meaning a fresh boot with `enabled=true` in config never actually
+        // begins reserving SD space until the user opens a settings screen.
+        com.overdrive.app.storage.ExternalStorageCleaner.getInstance();
+
+        // Periodic cleanup of our own recordings/surveillance dirs — runs
+        // continuously instead of only while a recording is active. This
+        // catches the case where the daemon crashed mid-recording leaving
+        // the dir at 95%, or the user lowered the size limit while nothing
+        // was recording. Cost: one directory walk every 30s; the threshold
+        // check exits early if usage is below 90%.
+        storageManager.startPeriodicCleanup();
         
         log("=== CAMERA DAEMON STARTING ===");
         log("PID: " + android.os.Process.myPid() + ", UID: " + android.os.Process.myUid());
@@ -292,6 +354,20 @@ public class CameraDaemon {
         // This ensures the encoder is created with the correct settings
         HttpServer.loadPersistedSettings();
         
+        // Seed version file if it doesn't exist yet (daemon runs as shell, can write /data/local/tmp/)
+        // This ensures the /status API always returns the correct app version
+        try {
+            java.io.File versionFile = new java.io.File(com.overdrive.app.updater.AppUpdater.VERSION_FILE);
+            if (!versionFile.exists()) {
+                java.io.FileWriter fw = new java.io.FileWriter(versionFile);
+                fw.write(com.overdrive.app.BuildConfig.VERSION_NAME);
+                fw.close();
+                log("Seeded version file: " + com.overdrive.app.BuildConfig.VERSION_NAME);
+            }
+        } catch (Exception e) {
+            log("Could not seed version file: " + e.getMessage());
+        }
+        
         // Initialize surveillance module (will use loaded settings)
         initSurveillance();
         
@@ -301,10 +377,17 @@ public class CameraDaemon {
         applyPersistedSettings();
         
         // If ACC went OFF before pipeline was ready, apply it now
+        // RACE CONDITION FIX: Also verify ACC is still OFF before applying.
+        // If ACC turned ON during pipeline init, the pending state is stale.
         if (pendingAccOff && gpuPipeline != null) {
-            log("Applying pending ACC OFF surveillance request...");
-            pendingAccOff = false;
-            onAccStateChanged(true);
+            if (!com.overdrive.app.monitor.AccMonitor.isAccOn()) {
+                log("Applying pending ACC OFF surveillance request...");
+                pendingAccOff = false;
+                onAccStateChanged(true);
+            } else {
+                log("Pending ACC OFF discarded — ACC is now ON (race condition guard)");
+                pendingAccOff = false;
+            }
         }
         
         new Thread(tcpServer::start, "TcpServer").start();
@@ -334,8 +417,10 @@ public class CameraDaemon {
             if (sohEstimator != null) {
                 sohEstimator.autoDetectCarModel(sharedAppContext);
                 sohEstimator.seedInitialEstimate();
-                log("SohEstimator: " + (sohEstimator.hasEstimate() ? sohEstimator.getCurrentSoh() + "%" : "no estimate") +
-                    " (capacity: " + sohEstimator.getNominalCapacityKwh() + " KWh)");
+                log("SohEstimator: " + (sohEstimator.hasEstimate()
+                        ? String.format("%.1f%%", sohEstimator.getCurrentSoh())
+                        : "no estimate")
+                    + " (capacity: " + String.format("%.2f kWh", sohEstimator.getNominalCapacityKwh()) + ")");
             }
         } catch (Exception e) {
             log("SohEstimator autoDetect error: " + e.getMessage());
@@ -388,6 +473,13 @@ public class CameraDaemon {
             log("MQTT initialized (" + mqttConnectionManager.getActiveCount() + " active connections)");
         } catch (Exception e) {
             log("MQTT init error: " + e.getMessage());
+        }
+
+        // Start BYD Cloud MQTT subscriber for remote command results + push data
+        try {
+            com.overdrive.app.byd.cloud.BydCloudDataProvider.getInstance().startSubscriberIfConfigured();
+        } catch (Exception e) {
+            log("Cloud MQTT subscriber start failed: " + e.getMessage());
         }
 
         // Initialize Trip Analytics
@@ -551,19 +643,16 @@ public class CameraDaemon {
         
         // GPU pipeline handles all cameras together
         if (gpuPipeline != null && !gpuPipeline.isRunning()) {
-            try {
-                // Start pipeline with auto-recording if not view-only
-                gpuPipeline.start(!viewOnly);
-                log("GPU pipeline started for camera " + viewId);
-                
-                if (!viewOnly) {
-                    log("Auto-recording enabled (will start when recorder ready)");
-                } else {
-                    log("View-only mode - recording NOT started");
-                }
-                
-            } catch (Exception e) {
-                log("ERROR: Failed to start GPU pipeline: " + e.getMessage());
+            // If ACC is ON, warm up the camera HAL first on a background thread
+            // to avoid blocking the HTTP/TCP handler thread for 4 seconds.
+            if (AccMonitor.isAccOn() && avcHalWarmup != null) {
+                final boolean fViewOnly = viewOnly;
+                new Thread(() -> {
+                    avcHalWarmup.warmupAndWait();
+                    startPipelineInternal(viewId, fViewOnly);
+                }, "CameraWarmup").start();
+            } else {
+                startPipelineInternal(viewId, viewOnly);
             }
         } else if (gpuPipeline != null && gpuPipeline.isRunning()) {
             // Pipeline already running - start recording if requested (stops surveillance)
@@ -573,6 +662,29 @@ public class CameraDaemon {
             } else {
                 log("Pipeline already running for camera " + viewId + " (view-only)");
             }
+        }
+    }
+    
+    /**
+     * Internal: starts the GPU pipeline after any warmup delay.
+     */
+    private static void startPipelineInternal(int viewId, boolean viewOnly) {
+        if (gpuPipeline == null || gpuPipeline.isRunning()) return;
+        try {
+            gpuPipeline.start(!viewOnly);
+            log("GPU pipeline started for camera " + viewId);
+            
+            if (!viewOnly) {
+                log("Auto-recording enabled (will start when recorder ready)");
+            } else {
+                log("View-only mode - recording NOT started");
+            }
+            
+            // Start AVC keep-alive if ACC is ON
+            startAvcKeepAliveIfNeeded();
+            
+        } catch (Exception e) {
+            log("ERROR: Failed to start GPU pipeline: " + e.getMessage());
         }
     }
 
@@ -593,6 +705,7 @@ public class CameraDaemon {
             // Only stop if forcing
             if (forceStop && gpuPipeline != null) {
                 gpuPipeline.stop();
+                stopAvcKeepAlive();
                 log("GPU pipeline stopped");
             }
         } catch (Exception e) {
@@ -620,11 +733,45 @@ public class CameraDaemon {
         log("Stopping all cameras (GPU pipeline, force=" + forceStop + ")");
         if (forceStop && gpuPipeline != null) {
             gpuPipeline.stop();
+            stopAvcKeepAlive();
         }
     }
     
     
     // GPU pipeline handles camera internally - no separate camera management needed
+    
+    // ==================== AVC HAL KEEP-ALIVE ====================
+    
+    /**
+     * Starts the AVC keep-alive watchdog if conditions are met:
+     * - ACC is ON
+     * - Pipeline is running
+     * - Keep-alive not already active
+     *
+     * Called after pipeline starts in any mode while ACC is ON.
+     */
+    public static void startAvcKeepAliveIfNeeded() {
+        if (avcHalWarmup == null) {
+            avcHalWarmup = new com.overdrive.app.camera.AvcHalWarmup();
+        }
+        if (AccMonitor.isAccOn() && gpuPipeline != null && gpuPipeline.isRunning()) {
+            if (!avcHalWarmup.isActive()) {
+                avcHalWarmup.startKeepAlive();
+                log("AVC keep-alive started (ACC ON + pipeline running)");
+            }
+        }
+    }
+    
+    /**
+     * Stops the AVC keep-alive watchdog.
+     * Called when pipeline stops or daemon shuts down.
+     */
+    public static void stopAvcKeepAlive() {
+        if (avcHalWarmup != null && avcHalWarmup.isActive()) {
+            avcHalWarmup.stopKeepAlive();
+            log("AVC keep-alive stopped");
+        }
+    }
     
     // ==================== GETTERS ====================
     
@@ -648,6 +795,9 @@ public class CameraDaemon {
     public static void shutdown() {
         log("Shutdown requested — writing disable sentinel and cleaning up...");
         running.set(false);
+        
+        // Stop AVC keep-alive immediately
+        stopAvcKeepAlive();
         
         // Write disable sentinel FIRST — this tells the shell watchdog wrapper
         // to NOT restart the daemon after we exit. Without this, the wrapper
@@ -1116,7 +1266,7 @@ public class CameraDaemon {
                     gpuPipeline.getConfig().getVideoCodec() + ")");
             }
             
-            gpuPipeline.init(assetManager);
+            gpuPipeline.init(assetManager, com.overdrive.app.daemon.DaemonBootstrap.getContext());
             
             log("GPU Surveillance initialized: " + PANO_WIDTH + "x" + PANO_HEIGHT + 
                 " -> 2560x1920 (mosaic)");
@@ -1141,6 +1291,10 @@ public class CameraDaemon {
                 recordingModeManager = new com.overdrive.app.recording.RecordingModeManager(
                     sharedAppContext, gpuPipeline);
                 log("RecordingModeManager initialized");
+                
+                // Create AVC HAL warmup instance (shared with RecordingModeManager)
+                avcHalWarmup = new com.overdrive.app.camera.AvcHalWarmup();
+                log("AvcHalWarmup initialized");
                 
                 // Now initialize TelemetryDataCollector (context is guaranteed available)
                 try {
@@ -1184,6 +1338,16 @@ public class CameraDaemon {
      * Enable surveillance mode.
      */
     public static void enableSurveillance() {
+        // RACE CONDITION FIX: Reject surveillance enable if ACC is ON.
+        // This is the primary guard against the race where AccSentryDaemon's
+        // enableSurveillance() retry loop or the 45-second fallback timer fires
+        // AFTER ACC has already turned ON. AccMonitor is the source of truth
+        // because it's updated synchronously by onAccStateChanged() on the IPC thread.
+        if (com.overdrive.app.monitor.AccMonitor.isAccOn()) {
+            log("enableSurveillance() REJECTED — ACC is ON (race condition guard)");
+            return;
+        }
+        
         if (gpuPipeline == null) {
             log("GPU pipeline not ready — queuing surveillance enable for when pipeline initializes");
             pendingAccOff = true;
@@ -1241,6 +1405,365 @@ public class CameraDaemon {
             gpuPipeline.disableSurveillance();
             // Keep pipeline running for potential streaming
         }
+    }
+    
+    // ==================== DOOR LOCK GATE ====================
+    // Surveillance is only armed after doors are locked. This prevents false motion
+    // events from the owner exiting the car. Cloud lock detection is primary (MQTT
+    // subscriber runs in this process), device SDK is fallback, 60s timeout is last resort.
+    
+    /**
+     * Register door lock listener and arm surveillance when doors lock.
+     * Called from ACC OFF path after all other gates (user enabled, safe zone, schedule) pass.
+     * 
+     * RACE CONDITION SAFETY: Every callback and timeout checks AccMonitor.isAccOn()
+     * before arming. If ACC turns ON during the lock wait, surveillance is NOT armed.
+     */
+    private static void registerDoorLockListenerAndArmOnLock() {
+        doorLockListenerArmed = false;
+
+        // Three parallel lock-event sources, all active simultaneously while
+        // the gate is open:
+        //   1. Cloud MQTT (BydCloudDataProvider)         — fast when it works,
+        //      but historically very fragile in the field (events rarely fire
+        //      even with healthy MQTT and fresh snapshots).
+        //   2. Device SDK typed listener (via BydDataCollector) — primary
+        //      reliable source. Single registration at daemon startup.
+        //   3. Periodic getDoorLockStatus(area=1) poll       — catches any
+        //      lock event that neither listener delivered.
+        //
+        // All three converge through applyLockEvent() which is idempotent —
+        // multiple sources reporting the same transition cause exactly one
+        // arm or disarm. There is no primary/fallback toggle: every source
+        // runs in parallel, so a silent failure of one doesn't gate the
+        // others.
+
+        attachCloudLockSource();
+        attachDeviceLockSource();
+        startUnlockPollThread();
+
+        // Initial state probe: if doors are already locked at gate-entry, arm
+        // now without waiting for an event. Both sources are checked.
+        Boolean cloudInitial = currentCloudLockState();
+        if (cloudInitial != null) applyLockEvent(cloudInitial, "cloud-initial");
+        Boolean deviceInitial = currentDeviceLockState();
+        if (deviceInitial != null) applyLockEvent(deviceInitial, "device-initial");
+
+        // Force-arm timeout: if no source reports a lock within 60s, arm
+        // anyway. Owner may have walked away without locking, or every event
+        // source failed to deliver. This is the final safety net for arming.
+        new Thread(() -> {
+            try {
+                Thread.sleep(DOOR_LOCK_ARM_TIMEOUT_MS);
+                if (com.overdrive.app.monitor.AccMonitor.isAccOn()) {
+                    log("LOCK GATE TIMEOUT: ACC is ON — not arming");
+                    return;
+                }
+                if (!doorLockListenerArmed && !surveillanceEnabled) {
+                    log("LOCK GATE TIMEOUT: No lock detected within "
+                        + (DOOR_LOCK_ARM_TIMEOUT_MS / 1000) + "s — force-arming surveillance");
+                    applyLockEvent(true, "timeout");
+                }
+            } catch (InterruptedException ignored) {}
+        }, "DoorLockTimeout").start();
+
+        // Reverse fallback: ACC-ON disarm watchdog. Periodically queries
+        // hardware ACC state directly. If ACC turned ON without any IPC
+        // event reaching us (rare but seen during AccSentryDaemon restart
+        // races), this thread force-disables surveillance.
+        startAccOnDisarmWatchdog();
+    }
+
+    /**
+     * Single arm/disarm path. Idempotent: redundant calls in the same state
+     * are no-ops. Every lock-event source flows through here.
+     */
+    private static synchronized void applyLockEvent(boolean locked, String source) {
+        if (com.overdrive.app.monitor.AccMonitor.isAccOn()) {
+            log("LOCK GATE [" + source + "]: " + (locked ? "LOCKED" : "UNLOCKED")
+                + " but ACC is ON — ignoring");
+            return;
+        }
+        if (locked) {
+            if (doorLockListenerArmed) return;
+            log("LOCK GATE [" + source + "]: LOCKED — arming surveillance");
+            doorLockListenerArmed = true;
+            enableSurveillance();
+        } else {
+            if (!doorLockListenerArmed) return;
+            log("LOCK GATE [" + source + "]: UNLOCKED — disarming surveillance (owner returning)");
+            disableSurveillance();
+            doorLockListenerArmed = false;
+        }
+    }
+
+    /** Cloud (MQTT) lock-event source. Always attached — runs in parallel
+     *  with the device-SDK source. No primary/fallback toggle. */
+    private static void attachCloudLockSource() {
+        try {
+            com.overdrive.app.byd.cloud.BydCloudDataProvider cloudProvider =
+                com.overdrive.app.byd.cloud.BydCloudDataProvider.getInstance();
+            if (cloudLockListener != null) {
+                cloudProvider.removeLockStateListener(cloudLockListener);
+            }
+            cloudLockListener = (locked, timestampMs) -> applyLockEvent(locked, "cloud");
+            cloudProvider.addLockStateListener(cloudLockListener);
+            log("LOCK GATE: Cloud lock listener attached");
+        } catch (Exception e) {
+            log("LOCK GATE: Cloud listener attach failed: " + e.getMessage());
+        }
+    }
+
+    /** Device-SDK lock-event source via BydDataCollector's typed listener.
+     *  Always attached — runs in parallel with the cloud source. */
+    private static void attachDeviceLockSource() {
+        if (sharedAppContext == null) {
+            log("LOCK GATE: No context — device-SDK source unavailable");
+            return;
+        }
+        try {
+            Object doorLockDevice = com.overdrive.app.byd.BydDeviceHelper.getDevice(
+                "android.hardware.bydauto.doorlock.BYDAutoDoorLockDevice", sharedAppContext);
+            if (doorLockDevice == null) {
+                log("LOCK GATE: BYDAutoDoorLockDevice unavailable — relying on cloud + timeout");
+                return;
+            }
+        } catch (Exception e) {
+            log("LOCK GATE: Device probe failed: " + e.getMessage());
+            return;
+        }
+        subscribeDeviceLockListener();
+    }
+
+    /** @return true=locked, false=unlocked, null=unknown/cloud unavailable. */
+    private static Boolean currentCloudLockState() {
+        try {
+            com.overdrive.app.byd.cloud.BydCloudDataProvider cloudProvider =
+                com.overdrive.app.byd.cloud.BydCloudDataProvider.getInstance();
+            if (!cloudProvider.isLockStateFresh()) return null;
+            com.overdrive.app.byd.cloud.VehicleCloudSnapshot cs = cloudProvider.getSnapshot();
+            if (cs == null) return null;
+            if (cs.isAllLocked()) return true;
+            if (cs.isAnyUnlocked()) return false;
+        } catch (Exception ignored) {}
+        return null;
+    }
+
+    /** @return true=locked, false=unlocked, null=unknown/device unavailable. */
+    private static Boolean currentDeviceLockState() {
+        if (sharedAppContext == null) return null;
+        try {
+            Object doorLockDevice = com.overdrive.app.byd.BydDeviceHelper.getDevice(
+                "android.hardware.bydauto.doorlock.BYDAutoDoorLockDevice", sharedAppContext);
+            if (doorLockDevice == null) return null;
+            int s = readDoorLockStatus(doorLockDevice);
+            if (s == DOOR_STATE_LOCK) return true;
+            if (s == DOOR_STATE_UNLOCK) return false;
+        } catch (Exception ignored) {}
+        return null;
+    }
+
+    /**
+     * ACC-ON disarm watchdog. While surveillance is active during ACC OFF,
+     * polls hardware ACC state every few seconds. If hardware says ACC ON
+     * but AccMonitor still says OFF (IPC missed, AccSentryDaemon restarting),
+     * force-disables surveillance directly. Symmetric counterpart to the
+     * ACC-OFF arm timeout.
+     */
+    private static void startAccOnDisarmWatchdog() {
+        if (accOnDisarmWatchdog != null && accOnDisarmWatchdog.isAlive()) return;
+        accOnDisarmWatchdog = new Thread(() -> {
+            log("ACC-ON disarm watchdog started");
+            while (true) {
+                try {
+                    Thread.sleep(ACC_ON_DISARM_POLL_INTERVAL_MS);
+                } catch (InterruptedException ie) {
+                    return;
+                }
+                if (com.overdrive.app.monitor.AccMonitor.isAccOn()) {
+                    log("ACC-ON disarm watchdog exiting (AccMonitor=ON)");
+                    return;
+                }
+                if (sharedAppContext == null) continue;
+                try {
+                    // probeAccState: returns true if ACC is OFF, false if ON
+                    // or unknown. As a side effect updates AccMonitor.
+                    boolean hwSaysAccOff = com.overdrive.app.monitor.AccMonitor
+                        .probeAccState(sharedAppContext);
+                    if (!hwSaysAccOff && surveillanceEnabled) {
+                        log("ACC-ON DISARM WATCHDOG: hardware says ACC ON but "
+                            + "surveillance still active — force-disabling");
+                        disableSurveillance();
+                        doorLockListenerArmed = false;
+                        return;
+                    }
+                } catch (Exception ignored) {}
+            }
+        }, "AccOnDisarmWatchdog");
+        accOnDisarmWatchdog.setDaemon(true);
+        accOnDisarmWatchdog.start();
+    }
+
+    private static void stopAccOnDisarmWatchdog() {
+        if (accOnDisarmWatchdog != null && accOnDisarmWatchdog.isAlive()) {
+            accOnDisarmWatchdog.interrupt();
+            accOnDisarmWatchdog = null;
+        }
+    }
+    
+    
+    /**
+     * Read door lock status using the correct SDK method.
+     * Tries getDoorLockStatus(int area) first (correct per SDK docs),
+     * falls back to getDoorLockState() for older firmware compatibility.
+     * 
+     * @return DOOR_STATE_INVALID(0), DOOR_STATE_UNLOCK(1), or DOOR_STATE_LOCK(2)
+     */
+    private static int readDoorLockStatus(Object doorLockDevice) {
+        if (doorLockDevice == null) return DOOR_STATE_INVALID;
+        
+        // Primary: getDoorLockStatus(int area) — per SDK documentation
+        // DOOR_LOCK_AREA_LEFT_FRONT = 1 (driver's door, most reliable indicator)
+        try {
+            java.lang.reflect.Method getStatus = doorLockDevice.getClass()
+                .getMethod("getDoorLockStatus", int.class);
+            Object result = getStatus.invoke(doorLockDevice, 1); // 1 = LEFT_FRONT
+            if (result instanceof Integer) {
+                int state = (Integer) result;
+                if (state >= 0 && state <= 2) return state;
+            }
+        } catch (NoSuchMethodException e) {
+            // Method doesn't exist on this firmware — try fallback
+        } catch (Exception e) {
+            log("LOCK GATE: getDoorLockStatus(1) failed: " + e.getMessage());
+        }
+        
+        // Fallback: getDoorLockState() — older/alternative API
+        try {
+            java.lang.reflect.Method getState = doorLockDevice.getClass()
+                .getMethod("getDoorLockState");
+            Object result = getState.invoke(doorLockDevice);
+            if (result instanceof Integer) {
+                return (Integer) result;
+            }
+        } catch (NoSuchMethodException e) {
+            log("LOCK GATE: Neither getDoorLockStatus nor getDoorLockState available");
+        } catch (Exception e) {
+            log("LOCK GATE: getDoorLockState failed: " + e.getMessage());
+        }
+        
+        return DOOR_STATE_INVALID;
+    }
+    
+    /**
+     * Subscribe to BydDataCollector's typed door-lock listener for the
+     * sentry arming gate. The collector registers a single typed proxy on
+     * BYDAutoDoorLockDevice at startup and fans out events; we just attach a
+     * subscriber here when ACC OFF activates the gate, and detach on ACC ON.
+     *
+     * This replaces the old per-cycle Proxy.newProxyInstance + registerListener
+     * pattern, which leaked listener references onto the device every cycle.
+     */
+    private static void subscribeDeviceLockListener() {
+        // Already subscribed for this cycle
+        if (deviceLockSubscriber != null) return;
+
+        deviceLockSubscriber = (area, sdkState) -> {
+            // Ignore non-driver-door events: lock-gate has historically gated
+            // on the LF (driver's) door state, matching the prior behavior.
+            if (area != 1) return;
+            if (sdkState == DOOR_STATE_LOCK) {
+                applyLockEvent(true, "device");
+            } else if (sdkState == DOOR_STATE_UNLOCK) {
+                applyLockEvent(false, "device");
+            }
+        };
+
+        try {
+            com.overdrive.app.byd.BydDataCollector.getInstance()
+                .addDoorLockListener(deviceLockSubscriber);
+            log("LOCK GATE: Device-SDK lock subscriber attached to BydDataCollector");
+        } catch (Exception e) {
+            log("LOCK GATE: Failed to attach device-lock subscriber: " + e.getMessage());
+            deviceLockSubscriber = null;
+        }
+    }
+
+    private static void unsubscribeDeviceLockListener() {
+        if (deviceLockSubscriber == null) return;
+        try {
+            com.overdrive.app.byd.BydDataCollector.getInstance()
+                .removeDoorLockListener(deviceLockSubscriber);
+        } catch (Exception ignored) {}
+        deviceLockSubscriber = null;
+    }
+    
+    /**
+     * Continuous unlock polling thread — detects door lock/unlock transitions.
+     * Uses getDoorLockStatus(1) for the driver's door.
+     * Polls every 5s while ACC is off.
+     */
+    private static void startUnlockPollThread() {
+        stopUnlockPollThread();
+
+        unlockPollThread = new Thread(() -> {
+            log("Unlock poll thread started (5s polling getDoorLockStatus)");
+
+            while (!com.overdrive.app.monitor.AccMonitor.isAccOn()) {
+                try {
+                    Thread.sleep(UNLOCK_POLL_INTERVAL_MS);
+                } catch (InterruptedException e) {
+                    return;
+                }
+                if (com.overdrive.app.monitor.AccMonitor.isAccOn()) return;
+
+                try {
+                    Object doorLockDevice = com.overdrive.app.byd.BydDeviceHelper.getDevice(
+                        "android.hardware.bydauto.doorlock.BYDAutoDoorLockDevice", sharedAppContext);
+                    if (doorLockDevice == null) continue;
+
+                    int state = readDoorLockStatus(doorLockDevice);
+                    if (state == DOOR_STATE_LOCK) {
+                        applyLockEvent(true, "poll");
+                    } else if (state == DOOR_STATE_UNLOCK) {
+                        applyLockEvent(false, "poll");
+                    }
+                } catch (Exception e) {
+                    // Silently continue — device may be sleeping
+                }
+            }
+            log("Unlock poll thread exiting (ACC ON)");
+        }, "UnlockPoll");
+        unlockPollThread.setDaemon(true);
+        unlockPollThread.start();
+    }
+    
+    private static void stopUnlockPollThread() {
+        if (unlockPollThread != null && unlockPollThread.isAlive()) {
+            unlockPollThread.interrupt();
+            unlockPollThread = null;
+        }
+    }
+    
+    /**
+     * Clean up all door lock gate resources. Called on ACC ON.
+     */
+    private static void cleanupDoorLockGate() {
+        doorLockListenerArmed = false;
+
+        // Detach all three lock-event sources
+        if (cloudLockListener != null) {
+            try {
+                com.overdrive.app.byd.cloud.BydCloudDataProvider.getInstance()
+                    .removeLockStateListener(cloudLockListener);
+            } catch (Exception ignored) {}
+            cloudLockListener = null;
+        }
+        unsubscribeDeviceLockListener();
+        stopUnlockPollThread();
+
+        // Stop the reverse-fallback ACC-ON disarm watchdog
+        stopAccOnDisarmWatchdog();
     }
     
     /**
@@ -1327,9 +1850,10 @@ public class CameraDaemon {
                     } else {
                         log("WARNING: SD card mount failed - using internal storage");
                     }
-                    // Start watchdog to keep SD card mounted while ACC is off.
-                    // BYD system may repeatedly unmount it — watchdog keeps it alive
-                    // so recordings/events/trips remain accessible via HTTP.
+                    // Watchdog already started at daemon boot in main(); calling
+                    // startSdCardWatchdog() again is idempotent (it stops any
+                    // existing watchdog before starting). Kept here as a
+                    // defensive re-arm in case the previous instance died.
                     storage.startSdCardWatchdog();
                 }
                 
@@ -1351,34 +1875,39 @@ public class CameraDaemon {
                     return;  // SD card is mounted + watchdog running, just skip surveillance
                 }
                 
+                // Schedule check — don't start surveillance outside configured time windows
+                try {
+                    com.overdrive.app.surveillance.SurveillanceSchedule schedule = 
+                        com.overdrive.app.config.UnifiedConfigManager.getSurveillanceSchedule();
+                    if (schedule != null && schedule.isEnabled() && !schedule.isActiveNow()) {
+                        log("SCHEDULE: Surveillance suppressed on ACC OFF — outside time window (" +
+                            schedule.getSummary() + ")");
+                        surveillanceEnabled = true;  // Mark intent so periodic checker can start it later
+                        return;  // SD card is mounted + watchdog running, just skip surveillance
+                    }
+                } catch (Exception e) {
+                    log("Schedule check error (proceeding with surveillance): " + e.getMessage());
+                }
+                
                 if (!gpuPipeline.isRunning()) {
                     log("Starting pipeline for sentry mode...");
                     gpuPipeline.start();
                 }
                 gpuPipeline.setRecordingMode(
                     com.overdrive.app.surveillance.GpuPipelineConfig.RecordingMode.SENTRY);
-                // NOTE: Do NOT call gpuPipeline.enableSurveillance() here.
-                // Surveillance is enabled by AccSentryDaemon after the door lock gate
-                // (registerDoorLockListenerAndArmOnLock). Enabling here would bypass
-                // the door lock check and cause a double-enable when AccSentryDaemon
-                // sends its own enable IPC.
-                log("Pipeline started in sentry mode (surveillance will be armed by AccSentryDaemon)");
+                // Door lock gate: surveillance is armed only after doors are locked.
+                // This prevents false motion events from the owner exiting the car.
+                // Three parallel sources fire concurrently (cloud MQTT, device-SDK
+                // typed listener, 5s polling); arm timeout at 60s; ACC-ON disarm
+                // watchdog runs in parallel as reverse fallback.
+                log("Pipeline started in sentry mode — waiting for door lock to arm surveillance");
+                registerDoorLockListenerAndArmOnLock();
                 
-                // FALLBACK: If AccSentryDaemon doesn't arm surveillance within 45s
-                // (e.g., door lock API broken, IPC failed, daemon not running),
-                // arm it directly from CameraDaemon. This prevents the car sitting
-                // with no motion detection indefinitely.
-                final long SURVEILLANCE_ARM_FALLBACK_MS = 45_000;
-                new Thread(() -> {
-                    try {
-                        Thread.sleep(SURVEILLANCE_ARM_FALLBACK_MS);
-                        if (!surveillanceEnabled && gpuPipeline != null && !gpuPipeline.isSurveillanceMode()) {
-                            log("FALLBACK: AccSentryDaemon did not arm surveillance within " + 
-                                (SURVEILLANCE_ARM_FALLBACK_MS / 1000) + "s — arming directly");
-                            enableSurveillance();
-                        }
-                    } catch (InterruptedException ignored) {}
-                }, "SurveillanceArmFallback").start();
+                // SOTA: Periodic schedule checker — monitors time window transitions
+                // during active sentry. If the schedule window ends, surveillance stops.
+                // If the window starts (e.g., user parked before the window), surveillance starts.
+                // Runs every 5 minutes. Only active when ACC is off.
+                startScheduleChecker();
                 
                 log("Pipeline started in sentry mode");
             } catch (Exception e) {
@@ -1390,8 +1919,33 @@ public class CameraDaemon {
                 e.printStackTrace();
             }
         } else {
-            // ACC ON - Stop SD card watchdog (system manages SD card normally when ACC is on)
-            com.overdrive.app.storage.StorageManager.getInstance().stopSdCardWatchdog();
+            // ACC ON. We intentionally leave the SD-card watchdog running here:
+            // BYD/Android can unmount the SD even with ACC on, and stopping the
+            // watchdog created a window where the HTTP server returned empty
+            // recordings until the user cycled ACC OFF→ON. The watchdog is
+            // started at daemon boot in main() and runs for the daemon's
+            // lifetime as long as any storage type is set to SD.
+
+            // Stop schedule checker (only runs during ACC OFF sentry mode)
+            stopScheduleChecker();
+
+            // Stop door lock gate: detach cloud + device-SDK listeners, stop
+            // unlock poll, stop ACC-ON disarm watchdog.
+            cleanupDoorLockGate();
+
+            // Clear safe-zone suppression flag. It was set during the prior
+            // ACC OFF in a safe zone to record "would have armed surveillance,
+            // but suppressed by geofence." Once the user has turned ACC back
+            // ON the suppression no longer applies — recording modes
+            // (CONTINUOUS / DRIVE_MODE / PROXIMITY_GUARD) handle their own
+            // activation independent of surveillance state. Without this
+            // clear, the daemon status JSON keeps reporting safeZoneSuppressed=true
+            // until the GPS poller eventually notices the boundary crossing,
+            // which can be minutes after driving away.
+            if (safeZoneSuppressed) {
+                log("Clearing safeZoneSuppressed flag on ACC ON (was set during last sentry suppression)");
+                safeZoneSuppressed = false;
+            }
             
             // Recreate app context if it was broken (system server was dead during init).
             // ACC ON means the head unit is awake and binder services should be available.
@@ -1443,16 +1997,30 @@ public class CameraDaemon {
             // Tell BydDataCollector to resume full polling (speed/engine/gearbox)
             com.overdrive.app.byd.BydDataCollector.getInstance().setAccState(true);
             
-            // Notify RecordingModeManager — it handles stopping surveillance pipeline
-            // and starting recording mode
+            // If pipeline is currently in SURVEILLANCE mode, gracefully exit it:
+            // finalize any in-progress sentry recording, flush the encoder, drop
+            // out of SURVEILLANCE, and reopen the camera so BYD's native AVM app
+            // can grab the primary slot. Skipped when not in surveillance —
+            // calling onAccOn() in steady-state NORMAL_RECORDING would stop the
+            // active recording and reopen the camera, which is exactly the
+            // regression we're avoiding for duplicate ACC ON IPCs.
+            if (gpuPipeline != null && gpuPipeline.isSurveillanceMode()) {
+                try {
+                    gpuPipeline.onAccOn();
+                } catch (Exception e) {
+                    log("gpuPipeline.onAccOn() error: " + e.getMessage());
+                }
+            }
+
+            // Notify RecordingModeManager — it handles starting recording mode
             log("ACC ON - notifying RecordingModeManager...");
             if (recordingModeManager != null) {
                 recordingModeManager.onAccStateChanged(true);
             } else {
-                // Fallback: Stop pipeline completely to save power (legacy behavior)
+                // Fallback: Stop pipeline completely to save power (legacy behavior).
+                // gpuPipeline.onAccOn() already ran above; just tear down.
                 log("Stopping pipeline (ACC ON - saving power)...");
                 if (gpuPipeline != null) {
-                    gpuPipeline.onAccOn();
                     gpuPipeline.stop();
                 }
                 log("Pipeline stopped - power saving mode");
@@ -1469,16 +2037,28 @@ public class CameraDaemon {
      * 
      * @param gear The new gear position (1=P, 2=R, 3=N, 4=D, 5=M, 6=S)
      */
+    private static volatile int lastNotifiedGear = Integer.MIN_VALUE;
+
     public static void onGearChanged(int gear) {
         String gearName = com.overdrive.app.recording.RecordingModeManager.gearToString(gear);
-        log("Gear changed to: " + gearName);
-        
+
+        // GearMonitor primes the system with one initial notification on
+        // start(); subsequent rapid duplicates can also slip through during
+        // ACC ON re-init. Skip logging when the gear value is unchanged from
+        // the last notification — downstream listeners already short-circuit
+        // duplicate gears, but the daemon log shouldn't keep restating it.
+        boolean redundant = (gear == lastNotifiedGear);
+        lastNotifiedGear = gear;
+        if (!redundant) {
+            log("Gear changed to: " + gearName);
+        }
+
         if (recordingModeManager != null) {
             recordingModeManager.onGearChanged(gear);
-        } else {
+        } else if (!redundant) {
             log("RecordingModeManager not initialized - gear change ignored");
         }
-        
+
         if (tripAnalyticsManager != null) tripAnalyticsManager.onGearChanged(gear);
     }
     
@@ -1496,6 +2076,76 @@ public class CameraDaemon {
     
     public static void setSafeZoneSuppressed(boolean suppressed) {
         safeZoneSuppressed = suppressed;
+    }
+    
+    // ==================== SCHEDULE CHECKER ====================
+    
+    private static Thread scheduleCheckerThread = null;
+    
+    /**
+     * Starts the periodic schedule checker that monitors time window transitions.
+     * Runs every 5 minutes while ACC is off. Stops when ACC turns on.
+     */
+    private static void startScheduleChecker() {
+        stopScheduleChecker();
+        scheduleCheckerThread = new Thread(new Runnable() {
+            public void run() {
+                log("Schedule checker started (5-min interval)");
+                while (!Thread.currentThread().isInterrupted()) {
+                    try {
+                        Thread.sleep(5 * 60 * 1000);  // 5 minutes
+                    } catch (InterruptedException e) {
+                        break;
+                    }
+                    
+                    // Only check when ACC is off
+                    if (com.overdrive.app.monitor.AccMonitor.isAccOn()) continue;
+                    
+                    try {
+                        com.overdrive.app.surveillance.SurveillanceSchedule schedule =
+                            com.overdrive.app.config.UnifiedConfigManager.getSurveillanceSchedule();
+                        
+                        // Schedule disabled = always active, nothing to check
+                        if (schedule == null || !schedule.isEnabled()) continue;
+                        
+                        boolean withinWindow = schedule.isActiveNow();
+                        boolean currentlyActive = surveillanceEnabled && gpuPipeline != null 
+                                && gpuPipeline.isSurveillanceMode();
+                        
+                        if (!withinWindow && currentlyActive) {
+                            // Schedule window ended — stop surveillance
+                            log("SCHEDULE: Time window ended (" + schedule.getSummary() + 
+                                ") — stopping surveillance");
+                            disableSurveillance();
+                        } else if (withinWindow && !currentlyActive && !safeZoneSuppressed) {
+                            // Schedule window started — enable surveillance if other conditions met
+                            boolean userEnabled = com.overdrive.app.config.UnifiedConfigManager
+                                .isSurveillanceEnabled();
+                            if (userEnabled) {
+                                log("SCHEDULE: Time window started (" + schedule.getSummary() + 
+                                    ") — enabling surveillance");
+                                enableSurveillance();
+                            }
+                        }
+                    } catch (Exception e) {
+                        log("Schedule checker error: " + e.getMessage());
+                    }
+                }
+                log("Schedule checker stopped");
+            }
+        }, "ScheduleChecker");
+        scheduleCheckerThread.setDaemon(true);
+        scheduleCheckerThread.start();
+    }
+    
+    /**
+     * Stops the periodic schedule checker.
+     */
+    private static void stopScheduleChecker() {
+        if (scheduleCheckerThread != null) {
+            scheduleCheckerThread.interrupt();
+            scheduleCheckerThread = null;
+        }
     }
     
     /**

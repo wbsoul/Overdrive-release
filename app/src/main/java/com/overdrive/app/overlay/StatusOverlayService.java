@@ -29,7 +29,6 @@ import org.json.JSONObject;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
-import java.net.URL;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -54,7 +53,13 @@ public class StatusOverlayService extends Service {
     private static final int NOTIFICATION_ID = 9001;
     private static final long POLL_INTERVAL_MS = 3000;
     private static final long POLL_INTERVAL_ACC_OFF_MS = 10000; // Slower polling when ACC is off
-    private static final String STATUS_URL = "http://127.0.0.1:8080/status";
+
+    // Persisted overlay position
+    private static final String PREFS_NAME = "status_overlay_prefs";
+    private static final String PREF_POS_X = "pos_x";
+    private static final String PREF_POS_Y = "pos_y";
+    private static final int DEFAULT_POS_X = 20;
+    private static final int DEFAULT_POS_Y = 100;
 
     private WindowManager windowManager;
     private View overlayView;
@@ -214,8 +219,11 @@ public class StatusOverlayService extends Service {
                 PixelFormat.TRANSLUCENT
         );
         layoutParams.gravity = Gravity.TOP | Gravity.START;
-        layoutParams.x = 20;
-        layoutParams.y = 100;
+        // Restore last user-placed position (falls back to defaults on first run)
+        android.content.SharedPreferences prefs =
+                getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        layoutParams.x = prefs.getInt(PREF_POS_X, DEFAULT_POS_X);
+        layoutParams.y = prefs.getInt(PREF_POS_Y, DEFAULT_POS_Y);
 
         bindViews();
         setupDrag();
@@ -291,6 +299,15 @@ public class StatusOverlayService extends Service {
                         // Let child click handlers fire
                         return false;
                     }
+                    // Persist the new position so it survives overlay recreation,
+                    // service restarts, and reboots
+                    try {
+                        getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                                .edit()
+                                .putInt(PREF_POS_X, layoutParams.x)
+                                .putInt(PREF_POS_Y, layoutParams.y)
+                                .apply();
+                    } catch (Exception ignored) {}
                     return true;
             }
             return false;
@@ -340,11 +357,8 @@ public class StatusOverlayService extends Service {
     private JSONObject fetchStatus() {
         HttpURLConnection conn = null;
         try {
-            URL url = new URL(STATUS_URL);
-            conn = (HttpURLConnection) url.openConnection();
-            conn.setConnectTimeout(2000);
-            conn.setReadTimeout(2000);
-            conn.setRequestMethod("GET");
+            conn = com.overdrive.app.util.DaemonHttpClient.open(
+                "/status", "GET", 2000, 2000);
             if (conn.getResponseCode() == 200) {
                 BufferedReader reader = new BufferedReader(
                         new InputStreamReader(conn.getInputStream()));
@@ -477,8 +491,12 @@ public class StatusOverlayService extends Service {
             return;
         }
         
-        // Determine what's visible before creating the window
-        boolean shouldShowRec = recConfigured && (isRecording || shouldRecordingBeActive());
+        // Determine what's visible before creating the window.
+        // Proximity guard should stay visible even when idle/armed (waiting for
+        // a radar trigger) — hiding it would make users think the feature is off.
+        boolean isProximityMode = "PROXIMITY_GUARD".equals(configuredMode);
+        boolean shouldShowRec = recConfigured
+                && (isRecording || shouldRecordingBeActive() || isProximityMode);
         boolean shouldShowTrip = tripEnabled;
         
         if (!shouldShowRec && !shouldShowTrip) {
@@ -498,20 +516,43 @@ public class StatusOverlayService extends Service {
         // Recording: show only if configured
         if (recConfigured) {
             recContainer.setVisibility(View.VISIBLE);
-            
+
             // Determine if recording SHOULD be happening right now given mode + gear + ACC
             boolean shouldBeRecording = shouldRecordingBeActive();
-            
+            boolean isProximity = "PROXIMITY_GUARD".equals(configuredMode);
+
             if (isRecording) {
-                // All good — recording as expected
-                ivRecIcon.setImageResource(R.drawable.ic_overlay_rec_active);
-                tvRecLabel.setText("REC ✓");
-                tvRecLabel.setTextColor(getColor(R.color.status_success));
+                // All good — recording as expected.
+                // Proximity mode uses an amber tint + "PROX" label so users can
+                // tell at a glance that this is radar-triggered recording,
+                // not continuous/drive recording.
+                if (isProximity) {
+                    ivRecIcon.setImageResource(R.drawable.ic_overlay_rec_active);
+                    tvRecLabel.setText("PROX ✓");
+                    tvRecLabel.setTextColor(getColor(R.color.status_warning));
+                } else {
+                    ivRecIcon.setImageResource(R.drawable.ic_overlay_rec_active);
+                    tvRecLabel.setText("REC ✓");
+                    tvRecLabel.setTextColor(getColor(R.color.status_success));
+                }
             } else if (shouldBeRecording) {
                 // Problem — should be recording but isn't
+                if (isProximity) {
+                    ivRecIcon.setImageResource(R.drawable.ic_overlay_rec_inactive);
+                    tvRecLabel.setText("PROX ✗");
+                    tvRecLabel.setTextColor(getColor(R.color.status_danger));
+                } else {
+                    ivRecIcon.setImageResource(R.drawable.ic_overlay_rec_inactive);
+                    tvRecLabel.setText("REC ✗");
+                    tvRecLabel.setTextColor(getColor(R.color.status_danger));
+                }
+            } else if (isProximity) {
+                // Proximity guard is armed but not currently recording (no radar trigger).
+                // Show an armed/idle indicator instead of hiding — users want to know
+                // the car is being watched even when nothing has triggered yet.
                 ivRecIcon.setImageResource(R.drawable.ic_overlay_rec_inactive);
-                tvRecLabel.setText("REC ✗");
-                tvRecLabel.setTextColor(getColor(R.color.status_danger));
+                tvRecLabel.setText("PROX ●");
+                tvRecLabel.setTextColor(getColor(R.color.status_warning));
             } else {
                 // Not recording, but that's expected (e.g., drive mode in P gear)
                 // Hide the recording indicator since conditions don't require it
@@ -572,10 +613,11 @@ public class StatusOverlayService extends Service {
     }
     
     /**
-     * Check if gear is a driving gear (D, R, S, M — not P or N).
+     * Check if gear is a driving gear (D, R, S, M, N — not P).
+     * N is included because BYD Auto Hold reports N while stopped at traffic lights.
      */
     private static boolean isDrivingGear(String gear) {
-        return "D".equals(gear) || "R".equals(gear) || "S".equals(gear) || "M".equals(gear);
+        return "D".equals(gear) || "R".equals(gear) || "S".equals(gear) || "M".equals(gear) || "N".equals(gear);
     }
 
     /**
@@ -617,7 +659,6 @@ public class StatusOverlayService extends Service {
      */
     private void restartTripDetection() {
         executor.execute(() -> {
-            HttpURLConnection conn = null;
             try {
                 // Toggle off then on to force re-init
                 postTripConfig(false);
@@ -633,11 +674,8 @@ public class StatusOverlayService extends Service {
     private void postTripConfig(boolean enabled) {
         HttpURLConnection conn = null;
         try {
-            URL url = new URL("http://127.0.0.1:8080/api/trips/config");
-            conn = (HttpURLConnection) url.openConnection();
-            conn.setConnectTimeout(2000);
-            conn.setReadTimeout(2000);
-            conn.setRequestMethod("POST");
+            conn = com.overdrive.app.util.DaemonHttpClient.open(
+                "/api/trips/config", "POST", 2000, 2000);
             conn.setRequestProperty("Content-Type", "application/json");
             conn.setDoOutput(true);
             JSONObject body = new JSONObject();

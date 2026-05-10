@@ -45,12 +45,12 @@ Download the latest APK from [GitHub Releases](https://github.com/yash-srivastav
 
 **Option A: Dedicated Wi-Fi Hotspot (Recommended)**
 - Keep the Sing-box Proxy disabled.
-- Directly enable your preferred tunnel (Zrok or Cloudflared).
+- Directly enable your preferred tunnel (Zrok, Cloudflared or Tailscale).
 
 **Option B: Public / BYD SIM**
 - Toggle the **"Public"** switch at the top right of the dashboard.
 - Go to Daemon View and verify the Sing-box Proxy Daemon is running.
-- Once verified, enable your preferred tunnel (Zrok or Cloudflared).
+- Once verified, enable your preferred tunnel (Zrok, Cloudflared or Tailscale).
 
 ### Telegram Notifications Setup
 1. Message [@BotFather](https://t.me/BotFather) on Telegram → `/newbot` → follow prompts → get your bot token
@@ -67,7 +67,7 @@ Download the latest APK from [GitHub Releases](https://github.com/yash-srivastav
 | Proximity Recording | ✅ Market First | ❌ |
 | Real-time Performance Monitor | ✅ Built-in | ❌ |
 | ISP Blocklist Bypass | ✅ Via BYD SIM | ❌ Requires WiFi Hotspot |
-| Remote Access | 3 methods (LAN, Cloudflared, Zrok) | Usually 1 (if any) |
+| Remote Access | 4 methods (LAN, Cloudflared, Zrok, Tailscale) | Usually 1 (if any) |
 | ADB Shell Runner | ✅ | ❌ |
 | Telegram Notifications | ✅ Free | Paid or None |
 | Data Privacy | 100% On-Device | Often Cloud-Required |
@@ -102,6 +102,15 @@ Free, open-source tunneling with no bandwidth limits at `https://<your-share>.sh
 2. Get your invite token from email
 3. Enter token in OverDrive settings
 4. Done — tunnel URL is auto-generated
+
+### Tailscale Tunnel
+Free, with no bandwidth limits. Connect from any device connected to tailscale.
+
+**Quick Tailscale setup:**
+1. Sign up at [tailscale.com](https://tailscale.com/)
+2. Open tailscale settings in Overdrive
+3. Generate a login URL and login
+4. Optionally, disable key expiry in tailscale if you would not like to log in every 6 months
 
 ## Tech Specs
 
@@ -195,8 +204,24 @@ If you want to use Zrok tunneling for remote access, you need your own Zrok invi
 ## Acknowledgments
 
 - **Native Bangcle Crypto Engine** — Full Java port of BYD's proprietary white-box AES encryption, based on the reverse engineering work by [Niek/BYD-re](https://github.com/Niek/BYD-re) and [jkaberg/pyBYD](https://github.com/jkaberg/pyBYD). Zero new dependencies — uses the existing OkHttp stack and Java crypto libraries.
+- **3D BYD Vehicle Models** — Vehicle Control page uses base models from [ddiaz-design's BYD collection on Sketchfab](https://sketchfab.com/ddiaz-design/collections/byd-base-models-5bf92ab5f2be4ff6be5c3ac49f7099f3).
 
 ## Changelog
+
+### v12 — May 2026: Vehicle Control, ROI Scheduling & Cloud Sync
+
+**✨ New Features**
+- **Vehicle Control Page** — Interactive dashboard featuring a 3D BYD Seal model with customizable body color, real-time remote controls (lock/unlock, trunk, windows, AC, seat heating/cooling via BYD Cloud + local HAL), live state sync with animated indicators, and an experimental 3D surround view using fisheye camera projection (might not work or lag)
+- **Surveillance ROI & Schedule Selection** — Define regions of interest and time-based schedules for surveillance activation, reducing unnecessary recordings and false triggers
+- **MQTT Listener Updates from BYD Cloud** — Real-time push notifications from BYD Cloud via MQTT subscription, enabling state sync
+
+**⚡ Optimizations & Fixes**
+- **Fixed Wrong Camera Bug** — Resolved camera feed mismatch issue; added manual camera ID selection option for vehicles with non-standard configurations
+- **Improved Surveillance Accuracy** — Reduced false positives through refined motion detection and AI gating logic
+- **Improved SOH Calculation** — Enhanced State of Health estimation logic with option to reset SOH for recalibration after battery service or firmware updates
+- **Fixed No Video Signal in OEM Dashcam** — Resolved issue where the OEM dashcam feed would show no signal under certain initialization conditions
+
+---
 
 ### v11 — May 2026: BYD Cloud Deterrent, Sentry Mode Alarm & Pipeline Fixes
 

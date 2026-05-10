@@ -374,11 +374,15 @@ BYD.surveillance = {
                     cdrPath: data.cdrPath,
                     cdrUsage: data.cdrUsageFormatted,
                     cdrFileCount: data.cdrFileCount,
+                    cdrProtected: data.cdrProtectedFormatted,
                     cdrDeletable: data.cdrDeletableFormatted,
                     totalFreed: data.totalBytesFreedFormatted,
-                    totalDeleted: data.totalFilesDeleted
+                    totalDeleted: data.totalFilesDeleted,
+                    monitoringActive: !!data.monitoringActive,
+                    lastCleanupTime: data.lastCleanupTime || 0,
+                    recommendAutoCleanup: !!data.recommendAutoCleanup
                 };
-                
+
                 this.updateCdrUI();
             }
         } catch (e) {
@@ -431,22 +435,55 @@ BYD.surveillance = {
         if (this.cdrInfo) {
             const pathEl = document.getElementById('cdrPath');
             if (pathEl) pathEl.textContent = this.cdrInfo.cdrPath || 'Not found';
-            
+
             const usageEl = document.getElementById('cdrUsage');
             if (usageEl) usageEl.textContent = this.cdrInfo.cdrUsage || '--';
-            
+
             const countEl = document.getElementById('cdrFileCount');
             if (countEl) countEl.textContent = this.cdrInfo.cdrFileCount || '0';
-            
+
+            const protEl = document.getElementById('cdrProtected');
+            if (protEl) protEl.textContent = this.cdrInfo.cdrProtected || '--';
+
             const deletableEl = document.getElementById('cdrDeletable');
             if (deletableEl) deletableEl.textContent = this.cdrInfo.cdrDeletable || '--';
-            
+
+            const monEl = document.getElementById('cdrMonitoring');
+            if (monEl) {
+                if (!this.cdrConfig.enabled) {
+                    monEl.textContent = 'Disabled';
+                    monEl.style.color = '';
+                } else if (this.cdrInfo.monitoringActive) {
+                    monEl.textContent = 'Running';
+                    monEl.style.color = '#22c55e';
+                } else {
+                    monEl.textContent = 'Idle';
+                    monEl.style.color = '#94a3b8';
+                }
+            }
+
+            const lastEl = document.getElementById('cdrLastCleanup');
+            if (lastEl) lastEl.textContent = this._formatRelativeTime(this.cdrInfo.lastCleanupTime);
+
+            const banner = document.getElementById('cdrRecommendBanner');
+            if (banner) banner.style.display = this.cdrInfo.recommendAutoCleanup ? 'block' : 'none';
+
             const freedEl = document.getElementById('cdrTotalFreed');
             if (freedEl) freedEl.textContent = this.cdrInfo.totalFreed || '0 B';
-            
+
             const deletedEl = document.getElementById('cdrTotalDeleted');
             if (deletedEl) deletedEl.textContent = this.cdrInfo.totalDeleted || '0';
         }
+    },
+
+    _formatRelativeTime(ts) {
+        if (!ts || ts <= 0) return 'Never';
+        const diffSec = Math.floor((Date.now() - ts) / 1000);
+        if (diffSec < 0) return 'Just now';
+        if (diffSec < 60) return diffSec + 's ago';
+        if (diffSec < 3600) return Math.floor(diffSec / 60) + ' min ago';
+        if (diffSec < 86400) return Math.floor(diffSec / 3600) + 'h ago';
+        return Math.floor(diffSec / 86400) + 'd ago';
     },
     
     async toggleCdrCleanup() {
@@ -1501,6 +1538,80 @@ window.BydCloud = {
 
         BYD.surveillance.config.bydCloudEnabled = status.verified || false;
         BYD.surveillance.updateDeterrentUI();
+
+        // Cloud push status
+        var pushSection = document.getElementById('bydCloudPushSection');
+        var mergeSection = document.getElementById('bydCloudMergeSection');
+        if (status.verified && status.cloudPush) {
+            var cp = status.cloudPush;
+            if (pushSection) pushSection.style.display = 'block';
+            if (mergeSection) mergeSection.style.display = 'block';
+
+            var pushBadge = document.getElementById('bydPushBadge');
+            var pushAge = document.getElementById('bydPushAge');
+            var pushLock = document.getElementById('bydPushLock');
+            var pushSoc = document.getElementById('bydPushSoc');
+            var pushCharging = document.getElementById('bydPushCharging');
+
+            if (pushBadge) {
+                if (cp.connected && cp.lastMessageAge >= 0 && cp.lastMessageAge < 120) {
+                    pushBadge.textContent = 'LIVE';
+                    pushBadge.className = 'status-badge active';
+                } else if (cp.connected && cp.lastMessageAge >= 0 && cp.lastMessageAge < 600) {
+                    pushBadge.textContent = 'OK';
+                    pushBadge.className = 'status-badge active';
+                } else if (cp.connected && cp.lastMessageAge >= 600) {
+                    pushBadge.textContent = 'STALE';
+                    pushBadge.className = 'status-badge inactive';
+                } else if (cp.connected) {
+                    pushBadge.textContent = 'WAITING';
+                    pushBadge.className = 'status-badge inactive';
+                } else {
+                    pushBadge.textContent = 'OFFLINE';
+                    pushBadge.className = 'status-badge inactive';
+                }
+            }
+
+            if (pushAge) {
+                if (cp.lastMessageAge >= 0) {
+                    var age = cp.lastMessageAge;
+                    pushAge.textContent = age < 60 ? age + 's ago' : Math.floor(age / 60) + 'm ago';
+                } else {
+                    pushAge.textContent = cp.connected ? 'waiting for data' : '';
+                }
+            }
+
+            if (pushLock) {
+                if (cp.lockState && cp.lockState !== 'unknown') {
+                    var lockIcon = cp.lockState === 'locked' ? '\uD83D\uDD12' : '\uD83D\uDD13';
+                    pushLock.textContent = lockIcon + ' ' + cp.lockState;
+                } else if (cp.connected && cp.lastMessageAge < 0) {
+                    pushLock.textContent = 'Waiting for T-Box push...';
+                } else {
+                    pushLock.textContent = '';
+                }
+            }
+            if (pushSoc && cp.socPercent != null) {
+                pushSoc.textContent = '\uD83D\uDD0B ' + cp.socPercent + '%';
+            } else if (pushSoc) {
+                pushSoc.textContent = '';
+            }
+            if (pushCharging) {
+                if (cp.chargingState && cp.chargingState !== 'unknown') {
+                    var chgLabel = { 'not_charging': 'Not charging', 'charging': 'Charging' };
+                    pushCharging.textContent = '\u26A1 ' + (chgLabel[cp.chargingState] || cp.chargingState);
+                } else {
+                    pushCharging.textContent = '';
+                }
+            }
+
+            // Merge toggle
+            var mergeToggle = document.getElementById('bydCloudMergeToggle');
+            if (mergeToggle) mergeToggle.checked = cp.cloudDataMerge || false;
+        } else {
+            if (pushSection) pushSection.style.display = 'none';
+            if (mergeSection) mergeSection.style.display = 'none';
+        }
     },
 
     async saveCredentials() {
@@ -1641,6 +1752,18 @@ window.BydCloud = {
         } else {
             input.type = 'password';
             btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>';
+        }
+    },
+
+    async toggleCloudDataMerge(enabled) {
+        try {
+            await fetch('/api/bydcloud/settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ cloudDataMerge: enabled })
+            });
+        } catch (e) {
+            console.warn('Failed to update cloud data merge:', e);
         }
     }
 };

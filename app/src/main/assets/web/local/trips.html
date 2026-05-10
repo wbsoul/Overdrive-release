@@ -1212,6 +1212,7 @@
                     <div class="brand-text">
                         <span class="brand-name">OverDrive</span>
                         <span class="brand-tagline">Sentry System</span>
+                        <span class="brand-version" id="appVersion"></span>
                     </div>
                 </div>
                 <button class="sidebar-close" onclick="toggleSidebar()">
@@ -1253,6 +1254,13 @@
                 <a href="trips.html" class="nav-link active">
                     <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 17h2v-7l4 4 4-4 4 4 4-4v7h2"/><path d="M4 5h16"/></svg>
                     <span>Trips</span>
+                </a>
+                <a href="vehicle-control.html" class="nav-link">
+                    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="3" y="11" width="18" height="11" rx="2"/>
+                        <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                    </svg>
+                    <span>Vehicle Control</span>
                 </a>
             </nav>
             <div class="sidebar-footer">
@@ -1645,11 +1653,21 @@
                                     </label>
                                 </div>
                             </div>
+                            <!-- Recommend banner (shown only when API says recommendAutoCleanup) -->
+                            <div class="info-box" id="tripCdrRecommendBanner" style="display:none;background:rgba(255,193,7,0.08);border:1px solid rgba(255,193,7,0.3);">
+                                <div class="info-row" style="color:#ffc107;">
+                                    <span class="label">⚠️ Recommended</span>
+                                    <span class="value">Overdrive uses SD — enable cleanup to keep space free</span>
+                                </div>
+                            </div>
                             <div class="info-box" id="tripCdrInfoBox">
                                 <div class="info-row"><span class="label">Dashcam Path</span><span class="value" id="tripCdrPath">--</span></div>
                                 <div class="info-row"><span class="label">Dashcam Usage</span><span class="value" id="tripCdrUsage">--</span></div>
                                 <div class="info-row"><span class="label">Files</span><span class="value" id="tripCdrFileCount">--</span></div>
+                                <div class="info-row"><span class="label">Protected</span><span class="value" id="tripCdrProtected">--</span></div>
                                 <div class="info-row"><span class="label">Deletable</span><span class="value" id="tripCdrDeletable">--</span></div>
+                                <div class="info-row"><span class="label">Background monitor</span><span class="value" id="tripCdrMonitoring">--</span></div>
+                                <div class="info-row"><span class="label">Last cleanup</span><span class="value" id="tripCdrLastCleanup">--</span></div>
                             </div>
                             <div class="setting-row" style="margin-top:12px;">
                                 <div class="setting-info">
@@ -1659,7 +1677,7 @@
                                 <div class="setting-control">
                                     <div class="slider-control">
                                         <span class="slider-value" id="tripCdrReservedValue">2 GB</span>
-                                        <input type="range" class="slider" id="tripCdrReservedSlider" min="500" max="10000" step="500" value="2000" oninput="TRIPS.updateCdrReserved(this.value)">
+                                        <input type="range" class="slider" id="tripCdrReservedSlider" min="100" max="20000" step="100" value="2000" oninput="TRIPS.updateCdrReserved(this.value)">
                                     </div>
                                 </div>
                             </div>

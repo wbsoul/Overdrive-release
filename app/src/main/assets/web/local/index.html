@@ -26,6 +26,7 @@
                     <div class="brand-text">
                         <span class="brand-name">OverDrive</span>
                         <span class="brand-tagline">Sentry System</span>
+                        <span class="brand-version" id="appVersion"></span>
                     </div>
                 </div>
                 <button class="sidebar-close" onclick="toggleSidebar()">
@@ -94,6 +95,13 @@
                         <path d="M4 5h16"/>
                     </svg>
                     <span>Trips</span>
+                </a>
+                <a href="vehicle-control.html" class="nav-link">
+                    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="3" y="11" width="18" height="11" rx="2"/>
+                        <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                    </svg>
+                    <span>Vehicle Control</span>
                 </a>
             </nav>
             <div class="sidebar-footer">
@@ -888,8 +896,14 @@
                 
                 // CRITICAL FIX: Use the /ws endpoint on the current port (e.g. 8080)
                 // Do NOT use port 8887 - that's the dead legacy port
+                // Append JWT as ?token= so tunnels work (cookies get dropped by SameSite
+                // policies through reverse proxies; browser WS API can't set headers).
                 const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-                const url = `${protocol}//${window.location.host}/ws`;
+                let url = `${protocol}//${window.location.host}/ws`;
+                if (typeof BYDAuth !== 'undefined') {
+                    const wsToken = BYDAuth.getToken();
+                    if (wsToken) url += `?token=${encodeURIComponent(wsToken)}`;
+                }
                 console.log("[Stream] Connecting to optimized endpoint:", url);
                 
                 // Initialize and Start Player

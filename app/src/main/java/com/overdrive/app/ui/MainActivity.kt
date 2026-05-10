@@ -18,14 +18,9 @@ import androidx.navigation.fragment.NavHostFragment
 import androidx.navigation.ui.AppBarConfiguration
 import androidx.navigation.ui.navigateUp
 import androidx.navigation.ui.setupWithNavController
-import com.google.android.material.appbar.MaterialToolbar
-import com.google.android.material.navigation.NavigationView
-import com.google.android.material.switchmaterial.SwitchMaterial
-import com.overdrive.app.BuildConfig
-import com.overdrive.app.R
-import com.overdrive.app.launcher.AdbDaemonLauncher
 import com.overdrive.app.logging.LogLevel
 import com.overdrive.app.logging.LogManager
+// import com.overdrive.app.shell.PrivilegedShellSetup
 import com.overdrive.app.storage.StorageSetup
 import com.overdrive.app.ui.daemon.DaemonStartupManager
 import com.overdrive.app.ui.model.AccessMode
@@ -34,6 +29,12 @@ import com.overdrive.app.ui.model.DaemonType
 import com.overdrive.app.ui.viewmodel.DaemonsViewModel
 import com.overdrive.app.ui.viewmodel.LogsViewModel
 import com.overdrive.app.ui.viewmodel.MainViewModel
+import com.overdrive.app.launcher.AdbDaemonLauncher
+import com.google.android.material.appbar.MaterialToolbar
+import com.google.android.material.navigation.NavigationView
+import com.google.android.material.switchmaterial.SwitchMaterial
+import com.overdrive.app.BuildConfig
+import com.overdrive.app.R
 import com.overdrive.app.util.BydDataCacheWhitelist
 
 /**
@@ -110,6 +111,14 @@ class MainActivity : AppCompatActivity() {
         
         // Log app start
         logsViewModel.info("App", "OverDrive started")
+
+        // Seed out-of-process revival watchdog so the process gets resurrected
+        // if it ever gets force-stopped or OOM-killed without an external event.
+        try {
+            com.overdrive.app.receiver.ProcessRevivalReceiver.schedule(applicationContext)
+        } catch (e: Exception) {
+            android.util.Log.w("MainActivity", "ProcessRevivalReceiver.schedule failed: ${e.message}")
+        }
         
         // Setup privileged shell (UID 1000) - required for daemon management
         // setupPrivilegedShell()
@@ -244,6 +253,9 @@ class MainActivity : AppCompatActivity() {
                             daemonStartupManager.checkAllDaemonStatuses()
                         }, 3000)
                     }, 500)
+                    
+                    // Re-check traffic monitor now that ADB is available
+                    checkTrafficMonitorStatus()
                 }
             }
             
@@ -485,6 +497,41 @@ class MainActivity : AppCompatActivity() {
             }, 1000)
         }
     }
+    
+    /**
+     * Setup the privileged shell (UID 1000) for daemon management.
+     * This must be done before starting any daemons that need elevated privileges.
+     */
+    private fun setupPrivilegedShell() {
+        logsViewModel.info("Shell", "Setting up privileged shell...")
+        
+        // PrivilegedShellSetup disabled — all daemons now run via ADB shell (UID 2000)
+        // PrivilegedShellSetup.init(this)
+        // 
+        // PrivilegedShellSetup.setup(object : PrivilegedShellSetup.SetupCallback {
+        //     override fun onSuccess() {
+        //         runOnUiThread {
+        //             logsViewModel.info("Shell", "✓ Privileged shell ready (UID 1000)")
+        //             daemonStartupManager.checkAllDaemonStatuses()
+        //         }
+        //     }
+        //     
+        //     override fun onFailure(reason: String) {
+        //         runOnUiThread {
+        //             logsViewModel.warn("Shell", "⚠ Privileged shell setup failed: $reason")
+        //             logsViewModel.info("Shell", "Falling back to ADB shell for daemon management")
+        //             daemonStartupManager.checkAllDaemonStatuses()
+        //         }
+        //     }
+        //     
+        //     override fun onProgress(message: String) {
+        //         runOnUiThread {
+        //             logsViewModel.debug("Shell", "→ $message")
+        //         }
+        //     }
+        // })
+    }
+    
     private fun initViews() {
         drawerLayout = findViewById(R.id.drawerLayout)
         toolbar = findViewById(R.id.toolbar)
@@ -551,6 +598,16 @@ class MainActivity : AppCompatActivity() {
                 R.id.nav_reconfigure_camera -> {
                     drawerLayout.closeDrawers()
                     onReconfigureCameraClicked()
+                    true
+                }
+                R.id.nav_battery_health -> {
+                    drawerLayout.closeDrawers()
+                    showBatteryHealthDialog()
+                    true
+                }
+                R.id.nav_reset_data -> {
+                    drawerLayout.closeDrawers()
+                    showResetDataDialog()
                     true
                 }
                 else -> {
@@ -649,16 +706,31 @@ class MainActivity : AppCompatActivity() {
             }
             updateUrlDisplay()
         }
+
+        // Observe tunnel URL from tailscale controller
+        daemonsViewModel.tailscaleController.tunnelUrl.observe(this) { url ->
+            // Tailscale is lowest priority — only adopt its URL when no higher-priority tunnel has one
+            val zrokUrl = daemonsViewModel.zrokController.tunnelUrl.value
+            val cloudflaredUrl = daemonsViewModel.cloudflaredController.tunnelUrl.value
+            if (zrokUrl.isNullOrEmpty() && cloudflaredUrl.isNullOrEmpty() && !url.isNullOrEmpty()) {
+                mainViewModel.setTunnelUrl(url)
+            }
+            updateUrlDisplay()
+        }
         
-        // Observe daemon states for tunnel status (cloudflared or zrok)
+        // Observe daemon states for tunnel status (cloudflared, zrok or tailscale)
         daemonsViewModel.daemonStates.observe(this) { states ->
             val cloudflaredState = states[DaemonType.CLOUDFLARED_TUNNEL]
             val zrokState = states[DaemonType.ZROK_TUNNEL]
+            val tailscaleState = states[DaemonType.TAILSCALE_TUNNEL]
             // Show online if either tunnel is running
             val tunnelStatus = when {
                 zrokState?.status == DaemonStatus.RUNNING -> DaemonStatus.RUNNING
                 cloudflaredState?.status == DaemonStatus.RUNNING -> DaemonStatus.RUNNING
-                zrokState?.status == DaemonStatus.STARTING || cloudflaredState?.status == DaemonStatus.STARTING -> DaemonStatus.STARTING
+                tailscaleState?.status == DaemonStatus.RUNNING -> DaemonStatus.RUNNING
+                zrokState?.status == DaemonStatus.STARTING -> DaemonStatus.STARTING
+                cloudflaredState?.status == DaemonStatus.STARTING -> DaemonStatus.STARTING
+                tailscaleState?.status == DaemonStatus.STARTING -> DaemonStatus.STARTING
                 else -> DaemonStatus.STOPPED
             }
             updateStatusIndicator(tunnelStatus)
@@ -670,7 +742,8 @@ class MainActivity : AppCompatActivity() {
         // Check both tunnel URLs - prefer zrok if available
         val zrokUrl = daemonsViewModel.zrokController.tunnelUrl.value
         val cloudflaredUrl = daemonsViewModel.cloudflaredController.tunnelUrl.value
-        val tunnelUrl = zrokUrl?.takeIf { it.isNotEmpty() } ?: cloudflaredUrl
+        val tailscaleUrl = daemonsViewModel.tailscaleController.tunnelUrl.value
+        val tunnelUrl = zrokUrl?.takeIf { it.isNotEmpty() } ?: cloudflaredUrl?.takeIf { it.isNotEmpty() } ?: tailscaleUrl
         
         // Both modes now use tunnel URL
         if (tunnelUrl.isNullOrEmpty()) {
@@ -678,10 +751,14 @@ class MainActivity : AppCompatActivity() {
             val states = daemonsViewModel.daemonStates.value
             val cfState = states?.get(DaemonType.CLOUDFLARED_TUNNEL)
             val zrokState = states?.get(DaemonType.ZROK_TUNNEL)
+            val tailscaleState = states?.get(DaemonType.TAILSCALE_TUNNEL)
             val message = when {
                 zrokState?.status == DaemonStatus.STARTING -> "Starting Zrok tunnel..."
                 cfState?.status == DaemonStatus.STARTING -> "Starting Cloudflared tunnel..."
-                zrokState?.status == DaemonStatus.RUNNING || cfState?.status == DaemonStatus.RUNNING -> "Waiting for tunnel URL..."
+                tailscaleState?.status == DaemonStatus.STARTING -> "Starting Tailscale tunnel..."
+                zrokState?.status == DaemonStatus.RUNNING -> "Waiting for tunnel URL..."
+                cfState?.status == DaemonStatus.RUNNING -> "Waiting for tunnel URL..."
+                tailscaleState?.status == DaemonStatus.RUNNING -> "Waiting for tailscale URL..."
                 else -> "No tunnel running"
             }
             tvCurrentUrl.text = message
@@ -729,59 +806,122 @@ class MainActivity : AppCompatActivity() {
             val cameraConfig = config.optJSONObject("camera")
             val savedId = cameraConfig?.optInt("probedCameraId", -1) ?: -1
             val savedMode = cameraConfig?.optInt("probedSurfaceMode", -1) ?: -1
+            val isManual = cameraConfig?.optBoolean("manualOverride", false) ?: false
             
             if (savedId >= 0 && savedMode >= 0) {
-                menuItem.title = "Camera: ID $savedId, Mode $savedMode"
+                val mode = if (isManual) "Manual" else "Auto"
+                menuItem.title = "Camera: ID $savedId ($mode)"
             } else {
-                menuItem.title = "Camera: Not Configured"
+                menuItem.title = "Camera: Auto (detecting...)"
             }
         } catch (e: Exception) {
-            menuItem.title = "Reconfigure Camera"
+            menuItem.title = "Camera Selection"
         }
     }
     
     /**
      * Handle "Reconfigure Camera" menu item click.
-     * Clears the saved camera probe config and restarts the camera daemon
-     * so it performs a full probe of all camera ID × surfaceMode combinations.
+     * Shows a styled dialog to manually select camera ID or use auto-detection.
      */
     private fun onReconfigureCameraClicked() {
-        // Read current saved config for display
-        var currentInfo = "Not configured"
+        var currentId = -1
+        var isManual = false
         try {
             val config = com.overdrive.app.config.UnifiedConfigManager.loadConfig()
             val cameraConfig = config.optJSONObject("camera")
             if (cameraConfig != null) {
-                val savedId = cameraConfig.optInt("probedCameraId", -1)
-                val savedMode = cameraConfig.optInt("probedSurfaceMode", -1)
-                if (savedId >= 0 && savedMode >= 0) {
-                    currentInfo = "Camera ID: $savedId, Surface Mode: $savedMode"
-                }
+                currentId = cameraConfig.optInt("probedCameraId", -1)
+                isManual = cameraConfig.optBoolean("manualOverride", false)
             }
-        } catch (e: Exception) {
-            // Ignore
+        } catch (e: Exception) { /* ignore */ }
+
+        val dialogView = layoutInflater.inflate(R.layout.dialog_camera_selection, null)
+        
+        // Set current status
+        val statusText = dialogView.findViewById<TextView>(R.id.tvCurrentCamera)
+        if (isManual && currentId >= 0) {
+            statusText.text = "Current: Camera $currentId (Manual)"
+        } else {
+            statusText.text = "Current: Auto"
         }
         
-        android.app.AlertDialog.Builder(this)
-            .setTitle("Reconfigure Camera")
-            .setMessage(
-                "Current config: $currentInfo\n\n" +
-                "This will clear the saved camera configuration and restart the camera daemon. " +
-                "On restart, the daemon will probe all camera ID (0-5) × surface mode (0-5) " +
-                "combinations to find the one that produces panoramic video.\n\n" +
-                "Recording and streaming are paused during probe and resume automatically " +
-                "once a working camera is found.\n\n" +
-                "This is useful if:\n" +
-                "• Video appears black or frozen\n" +
-                "• You changed vehicle models\n" +
-                "• Camera stopped working after a firmware update\n\n" +
-                "The daemon will restart automatically."
-            )
-            .setPositiveButton("Reconfigure") { _, _ ->
-                performCameraReconfigure()
+        // Set radio button selection
+        val radioGroup = dialogView.findViewById<android.widget.RadioGroup>(R.id.rgCameraOptions)
+        val radioIds = arrayOf(
+            R.id.rbCameraAuto, R.id.rbCamera0, R.id.rbCamera1,
+            R.id.rbCamera2, R.id.rbCamera3, R.id.rbCamera4, R.id.rbCamera5
+        )
+        val currentSelection = if (isManual && currentId >= 0) currentId + 1 else 0
+        radioGroup.check(radioIds[currentSelection])
+        
+        val dialog = android.app.AlertDialog.Builder(this, R.style.Theme_Overdrive_Dialog)
+            .setView(dialogView)
+            .setNegativeButton("Close", null)
+            .create()
+        
+        // Save immediately on radio button selection — no Apply button needed
+        radioGroup.setOnCheckedChangeListener { _, checkedId ->
+            val selectedIndex = radioIds.indexOf(checkedId)
+            if (selectedIndex < 0) return@setOnCheckedChangeListener
+            
+            // Don't re-save if user tapped the already-selected option
+            if (selectedIndex == currentSelection) return@setOnCheckedChangeListener
+            
+            if (selectedIndex == 0) {
+                // Auto mode
+                Thread {
+                    try {
+                        val conn = com.overdrive.app.util.DaemonHttpClient.open(
+                            "/api/surveillance/config", "POST", 3000, 3000)
+                        conn.setRequestProperty("Content-Type", "application/json")
+                        conn.doOutput = true
+                        val body = """{"clearManualCameraId":true}"""
+                        conn.outputStream.use { it.write(body.toByteArray()) }
+                        val responseCode = conn.responseCode
+                        conn.disconnect()
+
+                        runOnUiThread {
+                            if (responseCode == 200) {
+                                Toast.makeText(this, "✓ Camera set to Auto", Toast.LENGTH_SHORT).show()
+                            } else {
+                                Toast.makeText(this, "Failed to save", Toast.LENGTH_SHORT).show()
+                            }
+                            updateCameraProbeMenuItem()
+                        }
+                    } catch (e: Exception) {
+                        runOnUiThread { Toast.makeText(this, "Failed: ${e.message}", Toast.LENGTH_SHORT).show() }
+                    }
+                }.start()
+            } else {
+                // Manual camera ID
+                val selectedCamId = selectedIndex - 1
+                Thread {
+                    try {
+                        val conn = com.overdrive.app.util.DaemonHttpClient.open(
+                            "/api/surveillance/config", "POST", 3000, 3000)
+                        conn.setRequestProperty("Content-Type", "application/json")
+                        conn.doOutput = true
+                        val body = """{"manualCameraId":$selectedCamId}"""
+                        conn.outputStream.use { it.write(body.toByteArray()) }
+                        val responseCode = conn.responseCode
+                        conn.disconnect()
+
+                        runOnUiThread {
+                            if (responseCode == 200) {
+                                Toast.makeText(this, "✓ Camera $selectedCamId set — next ACC cycle", Toast.LENGTH_SHORT).show()
+                            } else {
+                                Toast.makeText(this, "Failed to save", Toast.LENGTH_SHORT).show()
+                            }
+                            updateCameraProbeMenuItem()
+                        }
+                    } catch (e: Exception) {
+                        runOnUiThread { Toast.makeText(this, "Failed: ${e.message}", Toast.LENGTH_SHORT).show() }
+                    }
+                }.start()
             }
-            .setNegativeButton("Cancel", null)
-            .show()
+        }
+        
+        dialog.show()
     }
     
     /**
@@ -846,32 +986,352 @@ class MainActivity : AppCompatActivity() {
         }.start()
     }
     
-    // ==================== Traffic Monitor Management ====================
+    // ==================== Battery Health (SOH) Dialog ====================
+
+    /**
+     * Shows a styled dialog with SOH status details and a reset button.
+     * Reads directly from the persisted properties file (no HTTP/auth needed).
+     */
+    private fun showBatteryHealthDialog() {
+        val executor = java.util.concurrent.Executors.newSingleThreadExecutor()
+        
+        executor.execute {
+            var sohPercent = "--"
+            var source = "--"
+            var method = "--"
+            var nominalKwh = "--"
+            var samples = "--"
+            var lastUpdated = "--"
+            var preferredSource = "auto"
+            var hasEstimate = false
+            
+            try {
+                val sohFile = java.io.File("/data/local/tmp/abrp_soh_estimate.properties")
+                if (sohFile.exists()) {
+                    val props = java.util.Properties()
+                    java.io.FileInputStream(sohFile).use { props.load(it) }
+                    
+                    val soh = props.getProperty("soh_percent")?.toDoubleOrNull()
+                    if (soh != null && soh > 0 && soh <= 100) {
+                        sohPercent = String.format("%.1f%%", soh)
+                        hasEstimate = true
+                    }
+                    
+                    method = props.getProperty("estimation_method") ?: "--"
+                    samples = props.getProperty("sample_count") ?: "0"
+                    preferredSource = props.getProperty("preferred_source") ?: "auto"
+                    
+                    val nominal = props.getProperty("nominal_capacity_kwh")?.toDoubleOrNull()
+                    if (nominal != null && nominal > 0) {
+                        nominalKwh = String.format("%.1f kWh", nominal)
+                    }
+                    
+                    val ts = props.getProperty("last_updated")?.toLongOrNull()
+                    if (ts != null && ts > 0) {
+                        lastUpdated = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault())
+                            .format(java.util.Date(ts))
+                    }
+                    
+                    source = preferredSource
+                }
+            } catch (e: Exception) {
+                android.util.Log.w("MainActivity", "SOH file read failed: ${e.message}")
+            }
+            
+            val finalSoh = sohPercent
+            val finalSource = source
+            val finalMethod = method
+            val finalNominal = nominalKwh
+            val finalSamples = samples
+            val finalLastUpdated = lastUpdated
+            val finalHasEstimate = hasEstimate
+            
+            runOnUiThread {
+                val dialogView = layoutInflater.inflate(R.layout.dialog_battery_health, null)
+                
+                // Populate fields
+                dialogView.findViewById<TextView>(R.id.tvSohPercent).text = finalSoh
+                dialogView.findViewById<TextView>(R.id.tvSohSource).text = finalSource
+                dialogView.findViewById<TextView>(R.id.tvSohMethod).text = finalMethod
+                dialogView.findViewById<TextView>(R.id.tvSohCapacity).text = finalNominal
+                dialogView.findViewById<TextView>(R.id.tvSohSamples).text = finalSamples
+                dialogView.findViewById<TextView>(R.id.tvSohLastUpdated).text = finalLastUpdated
+                
+                // Status text
+                val statusView = dialogView.findViewById<TextView>(R.id.tvSohStatus)
+                if (finalHasEstimate) {
+                    statusView.text = "Estimation active"
+                    statusView.setTextColor(resources.getColor(R.color.brand_primary, null))
+                } else {
+                    statusView.text = "⚠ No estimate yet — waiting for data"
+                    statusView.setTextColor(resources.getColor(R.color.text_muted, null))
+                }
+                
+                // SOH percent color based on health
+                val sohView = dialogView.findViewById<TextView>(R.id.tvSohPercent)
+                if (finalHasEstimate) {
+                    val sohVal = finalSoh.replace("%", "").toDoubleOrNull() ?: 0.0
+                    val colorRes = when {
+                        sohVal >= 85 -> R.color.brand_primary   // Good
+                        sohVal >= 70 -> R.color.status_starting // Moderate
+                        else -> R.color.status_error            // Degraded
+                    }
+                    sohView.setTextColor(resources.getColor(colorRes, null))
+                }
+                
+                val dialog = android.app.AlertDialog.Builder(this, R.style.Theme_Overdrive_Dialog)
+                    .setView(dialogView)
+                    .setPositiveButton("Close", null)
+                    .create()
+                
+                // Wire up reset button
+                dialogView.findViewById<TextView>(R.id.btnResetSoh).setOnClickListener {
+                    dialog.dismiss()
+                    confirmSohReset()
+                }
+                
+                dialog.show()
+            }
+        }
+    }
     
+    /**
+     * Confirmation dialog before resetting SOH estimation.
+     */
+    private fun confirmSohReset() {
+        android.app.AlertDialog.Builder(this)
+            .setTitle("Reset SOH Estimation?")
+            .setMessage("This will clear all SOH data and force re-estimation from scratch.\n\nUse this if:\n• Battery was replaced\n• SOH reading seems incorrect\n• You want to recalibrate\n\nThe system will re-seed from the next available data source (OEM, charge calibration, or instantaneous reading).")
+            .setPositiveButton("Reset") { _, _ ->
+                performSohReset()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+    
+    /**
+     * Perform the actual SOH reset by deleting the properties file.
+     * The daemon's SohEstimator will detect the missing file and re-seed.
+     */
+    private fun performSohReset() {
+        val executor = java.util.concurrent.Executors.newSingleThreadExecutor()
+        executor.execute {
+            try {
+                // Use daemon API (daemon owns the file, has write permissions)
+                val conn = com.overdrive.app.util.DaemonHttpClient.open(
+                    "/api/performance/soh/reset", "POST", 3000, 3000)
+                conn.doOutput = true
+                conn.outputStream.use { it.write("{}".toByteArray()) }
+                val responseCode = conn.responseCode
+                conn.disconnect()
+                
+                if (responseCode == 200) {
+                    runOnUiThread {
+                        Toast.makeText(this, "✅ SOH estimation reset — will recalculate from next data", Toast.LENGTH_LONG).show()
+                        logsViewModel.info("SOH", "SOH estimation reset by user")
+                    }
+                } else {
+                    // Fallback: try direct file delete (works if app has permissions)
+                    val sohFile = java.io.File("/data/local/tmp/abrp_soh_estimate.properties")
+                    val deleted = if (sohFile.exists()) sohFile.delete() else true
+                    runOnUiThread {
+                        if (deleted) {
+                            Toast.makeText(this, "✅ SOH estimation reset — will recalculate from next data", Toast.LENGTH_LONG).show()
+                        } else {
+                            Toast.makeText(this, "❌ Reset failed — daemon not responding and file not writable", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                runOnUiThread {
+                    Toast.makeText(this, "❌ Reset failed: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
+    // ==================== Reset Data Dialog ====================
+
+    /** Map drawer menu category id → API category name (must match server). */
+    private val resetCategoryMapping = listOf(
+        R.id.cbResetTrips to "trips",
+        R.id.cbResetSocHistory to "socHistory",
+        R.id.cbResetSoh to "soh",
+        R.id.cbResetAbrpToken to "abrpToken",
+        R.id.cbResetBydCloud to "bydCloud",
+        R.id.cbResetMediaRecordings to "mediaRecordings",
+        R.id.cbResetMediaSurveillance to "mediaSurveillance",
+        R.id.cbResetMediaProximity to "mediaProximity",
+        R.id.cbResetMediaTrips to "mediaTrips"
+    )
+
+    private fun showResetDataDialog() {
+        val dialogView = layoutInflater.inflate(R.layout.dialog_reset_data, null)
+
+        val checkboxes: List<Pair<com.google.android.material.checkbox.MaterialCheckBox, String>> =
+            resetCategoryMapping.map { (id, cat) ->
+                dialogView.findViewById<com.google.android.material.checkbox.MaterialCheckBox>(id) to cat
+            }
+
+        val dialog = android.app.AlertDialog.Builder(this, R.style.Theme_Overdrive_Dialog)
+            .setView(dialogView)
+            .setPositiveButton("Reset Selected", null)  // Wired below to allow keep-open on validate
+            .setNegativeButton("Cancel", null)
+            .create()
+
+        // Quick toggles
+        dialogView.findViewById<com.google.android.material.button.MaterialButton>(R.id.btnResetSelectAll)
+            .setOnClickListener {
+                checkboxes.forEach { it.first.isChecked = true }
+            }
+        dialogView.findViewById<com.google.android.material.button.MaterialButton>(R.id.btnResetClearAll)
+            .setOnClickListener {
+                checkboxes.forEach { it.first.isChecked = false }
+            }
+
+        dialog.setOnShowListener {
+            val ok = dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE)
+            ok.setTextColor(resources.getColor(R.color.status_error, null))
+            ok.setOnClickListener {
+                val selected = checkboxes.filter { it.first.isChecked }.map { it.second }
+                if (selected.isEmpty()) {
+                    Toast.makeText(this, "Select at least one category", Toast.LENGTH_SHORT).show()
+                    return@setOnClickListener
+                }
+                dialog.dismiss()
+                confirmAndPerformReset(selected)
+            }
+        }
+
+        dialog.show()
+    }
+
+    private fun confirmAndPerformReset(categories: List<String>) {
+        val labels = mapOf(
+            "trips" to "Trips",
+            "socHistory" to "SoC + 12V history",
+            "soh" to "SoH calibration",
+            "abrpToken" to "ABRP token",
+            "bydCloud" to "BYD Cloud credentials",
+            "mediaRecordings" to "Recordings",
+            "mediaSurveillance" to "Sentry events",
+            "mediaProximity" to "Proximity recordings",
+            "mediaTrips" to "Trip telemetry files"
+        )
+        val list = categories.joinToString("\n") { "• " + (labels[it] ?: it) }
+        android.app.AlertDialog.Builder(this)
+            .setTitle("Reset the following?")
+            .setMessage("This cannot be undone.\n\n$list")
+            .setPositiveButton("Reset") { _, _ -> performReset(categories, labels) }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun performReset(
+        categories: List<String>,
+        labels: Map<String, String>
+    ) {
+        val executor = java.util.concurrent.Executors.newSingleThreadExecutor()
+        executor.execute {
+            try {
+                val payload = org.json.JSONObject().apply {
+                    put("categories", org.json.JSONArray(categories))
+                }
+                val conn = com.overdrive.app.util.DaemonHttpClient.open(
+                    "/api/performance/reset", "POST", 5000, 15000)
+                conn.doOutput = true
+                conn.setRequestProperty("Content-Type", "application/json")
+                conn.outputStream.use { it.write(payload.toString().toByteArray()) }
+
+                val code = conn.responseCode
+                val body = if (code in 200..299) {
+                    conn.inputStream.bufferedReader().use { it.readText() }
+                } else {
+                    conn.errorStream?.bufferedReader()?.use { it.readText() } ?: ""
+                }
+                conn.disconnect()
+
+                val data = try { org.json.JSONObject(body) } catch (e: Exception) { null }
+                runOnUiThread {
+                    if (data != null && data.optBoolean("success", false)) {
+                        val results = data.optJSONObject("results")
+                        val lines = StringBuilder()
+                        for (cat in categories) {
+                            val r = results?.optJSONObject(cat)
+                            val label = labels[cat] ?: cat
+                            if (r != null && r.optBoolean("success", false)) {
+                                val detail = when {
+                                    r.has("rowsDeleted") -> " (${r.optLong("rowsDeleted")} rows)"
+                                    r.has("filesDeleted") -> " (${r.optLong("filesDeleted")} files)"
+                                    else -> ""
+                                }
+                                lines.append("✓ ").append(label).append(detail).append("\n")
+                            } else {
+                                val err = r?.optString("error", "failed") ?: "failed"
+                                lines.append("✗ ").append(label).append(": ").append(err).append("\n")
+                            }
+                        }
+                        android.app.AlertDialog.Builder(this)
+                            .setTitle("Reset complete")
+                            .setMessage(lines.toString().trim())
+                            .setPositiveButton("OK", null)
+                            .show()
+                        logsViewModel.info("Reset", "Categories: ${categories.joinToString(",")}")
+                    } else {
+                        val err = data?.optString("error") ?: "HTTP $code"
+                        Toast.makeText(this, "Reset failed: $err", Toast.LENGTH_LONG).show()
+                    }
+                }
+            } catch (e: Exception) {
+                runOnUiThread {
+                    Toast.makeText(this, "Reset failed: ${e.message}", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
+
+    // ==================== Traffic Monitor Management ====================
+
     /** Track current traffic monitor state to show correct button */
     private var trafficMonitorEnabled: Boolean? = null
     
     /**
      * Check if BYD Traffic Monitor app is currently enabled or disabled.
      * Updates the drawer menu item title accordingly.
+     * 
+     * Uses ADB shell — if ADB isn't connected yet, shows a "checking" state
+     * and retries automatically when the drawer is opened.
      */
     private fun checkTrafficMonitorStatus() {
+        // Show loading state while we check
+        updateTrafficMonitorMenuItemText("🔄 Traffic Monitor: Checking...")
+        
         val adb = AdbDaemonLauncher(this)
+        // Use 'grep ... || echo NOT_DISABLED' to ensure exit code 0 regardless of grep result
         adb.executeShellCommand(
-            "pm list packages -d 2>/dev/null | grep com.byd.trafficmonitor",
+            "pm list packages -d 2>/dev/null | grep com.byd.trafficmonitor || echo NOT_DISABLED",
             object : AdbDaemonLauncher.LaunchCallback {
                 override fun onLog(message: String) {
-                    // If the package appears in disabled list, it's disabled
-                    val isDisabled = message.contains("com.byd.trafficmonitor")
+                    val isDisabled = message.contains("com.byd.trafficmonitor") && !message.contains("NOT_DISABLED")
                     runOnUiThread {
                         trafficMonitorEnabled = !isDisabled
                         updateTrafficMonitorMenuItem(!isDisabled)
                     }
                 }
-                override fun onLaunched() {}
+                override fun onLaunched() {
+                    // Command completed — if onLog wasn't called, default to enabled
+                    if (trafficMonitorEnabled == null) {
+                        runOnUiThread {
+                            trafficMonitorEnabled = true
+                            updateTrafficMonitorMenuItem(true)
+                        }
+                    }
+                }
                 override fun onError(error: String) {
                     runOnUiThread {
-                        updateTrafficMonitorMenuItemText("Traffic Monitor: Unknown")
+                        // Actual ADB connection failure
+                        trafficMonitorEnabled = null
+                        updateTrafficMonitorMenuItemText("⚠️ Traffic Monitor (tap to check)")
                     }
                 }
             }
@@ -894,43 +1354,66 @@ class MainActivity : AppCompatActivity() {
     
     /**
      * Handle traffic monitor menu item click.
-     * Shows confirmation dialog with appropriate enable/disable action.
+     * Shows an informational dialog explaining what the traffic monitor is,
+     * why disabling it is recommended, and lets the user take action.
      */
     private fun onTrafficMonitorClicked() {
         val currentlyEnabled = trafficMonitorEnabled
+        
         if (currentlyEnabled == null) {
-            Toast.makeText(this, "Checking traffic monitor status...", Toast.LENGTH_SHORT).show()
+            // ADB not connected — retry the check and show explanation
             checkTrafficMonitorStatus()
+            
+            android.app.AlertDialog.Builder(this)
+                .setTitle("⚠️ Cannot Check Status")
+                .setMessage(
+                    "ADB connection is not ready yet.\n\n" +
+                    "The app needs ADB access to manage system packages. " +
+                    "Please ensure:\n\n" +
+                    "• USB Debugging is enabled in Developer Options\n" +
+                    "• The ADB authorization prompt has been accepted\n\n" +
+                    "The status will update automatically once connected."
+                )
+                .setPositiveButton("OK", null)
+                .show()
             return
         }
         
         if (currentlyEnabled) {
-            // Currently enabled — offer to disable
+            // Currently enabled — offer to disable with full explanation
             android.app.AlertDialog.Builder(this)
-                .setTitle("Disable Traffic Monitor")
+                .setTitle("Disable BYD Traffic Monitor?")
                 .setMessage(
-                    "The BYD Traffic Monitor app runs in the background consuming mobile data and battery.\n\n" +
-                    "Disabling it is recommended.\n\n" +
-                    "After disabling, please perform a hard reboot by pressing and holding the central console button for 5 seconds."
+                    "The BYD Traffic Monitor (com.byd.trafficmonitor) is a built-in system app " +
+                    "that continuously monitors road traffic conditions in the background.\n\n" +
+                    "⚠️ Why disable it?\n\n" +
+                    "• Consumes mobile data (even when parked)\n" +
+                    "• Uses CPU and battery in the background\n" +
+                    "• Not needed if you use a separate navigation app\n" +
+                    "• Can interfere with the dashcam's network usage\n\n" +
+                    "This is safe to disable — it only affects the built-in traffic overlay on the map. " +
+                    "Your navigation, Bluetooth, and all other car functions remain unaffected.\n\n" +
+                    "A hard reboot is required after disabling (hold center console button 5 seconds)."
                 )
                 .setPositiveButton("Disable") { _, _ ->
                     setTrafficMonitorEnabled(false)
                 }
-                .setNegativeButton("Cancel", null)
+                .setNegativeButton("Keep Enabled", null)
                 .show()
         } else {
-            // Currently disabled — offer to enable
+            // Currently disabled — offer to re-enable
             android.app.AlertDialog.Builder(this)
-                .setTitle("Enable Traffic Monitor")
+                .setTitle("Re-enable BYD Traffic Monitor?")
                 .setMessage(
-                    "This will re-enable the BYD Traffic Monitor app.\n\n" +
-                    "Note: It will run in the background and may consume mobile data and battery.\n\n" +
-                    "After enabling, please perform a hard reboot by pressing and holding the central console button for 5 seconds."
+                    "The BYD Traffic Monitor is currently disabled.\n\n" +
+                    "Re-enabling it will restore the built-in traffic overlay on the navigation map. " +
+                    "Note that it will run in the background and consume mobile data.\n\n" +
+                    "A hard reboot is required after enabling (hold center console button 5 seconds)."
                 )
                 .setPositiveButton("Enable") { _, _ ->
                     setTrafficMonitorEnabled(true)
                 }
-                .setNegativeButton("Cancel", null)
+                .setNegativeButton("Keep Disabled", null)
                 .show()
         }
     }

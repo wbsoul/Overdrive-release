@@ -166,7 +166,7 @@ public class SurveillanceConfig {
     private String detectionZone = "normal";        // close, normal, extended
     private int loiteringTimeSeconds = 3;           // 1-10 seconds
     private int sensitivityLevel = 3;               // 1-5
-    private boolean[] cameraEnabled = {true, true, true, true};  // front, right, left, rear
+    private boolean[] cameraEnabled = {true, true, true, true};  // front, right, rear, left (matches quadrant order: Q0=front, Q1=right, Q2=rear, Q3=left)
     private boolean motionHeatmapEnabled = false;
     private boolean filterDebugLogEnabled = false;
     private int shadowFilterMode = 2;               // 0=OFF, 1=LIGHT, 2=NORMAL, 3=AGGRESSIVE
@@ -199,6 +199,53 @@ public class SurveillanceConfig {
     public void setMotionHeatmapEnabled(boolean enabled) { this.motionHeatmapEnabled = enabled; }
     public void setFilterDebugLogEnabled(boolean enabled) { this.filterDebugLogEnabled = enabled; }
     public void setShadowFilterMode(int mode) { this.shadowFilterMode = Math.max(0, Math.min(3, mode)); }
+    
+    // ========================================================================
+    // Per-Camera ROI (Region of Interest)
+    // ========================================================================
+    // Each quadrant can have an independent polygon ROI. Vertices are stored as
+    // normalized coordinates (0.0-1.0) relative to quadrant dimensions.
+    // null = no ROI (all blocks enabled, default behavior).
+    @SuppressWarnings("unchecked")
+    private float[][][] roiPolygons = new float[4][][];  // [quadrant][vertex][x,y]
+    private boolean[] roiEnabled = {false, false, false, false};
+    
+    public float[][] getRoiPolygon(int quadrant) {
+        if (quadrant < 0 || quadrant >= 4) return null;
+        return roiPolygons[quadrant];
+    }
+    public void setRoiPolygon(int quadrant, float[][] polygon) {
+        if (quadrant >= 0 && quadrant < 4) {
+            roiPolygons[quadrant] = polygon;
+            roiEnabled[quadrant] = (polygon != null && polygon.length >= 3);
+        }
+    }
+    public boolean isRoiEnabled(int quadrant) {
+        return quadrant >= 0 && quadrant < 4 && roiEnabled[quadrant];
+    }
+    public void clearRoi(int quadrant) {
+        if (quadrant >= 0 && quadrant < 4) {
+            roiPolygons[quadrant] = null;
+            roiEnabled[quadrant] = false;
+        }
+    }
+    
+    /**
+     * Sets only the ROI enabled flag without changing the polygon.
+     * When disabled, the polygon is preserved but not applied to the C++ pipeline.
+     */
+    public void setRoiEnabled(int quadrant, boolean enabled) {
+        if (quadrant >= 0 && quadrant < 4) {
+            roiEnabled[quadrant] = enabled;
+        }
+    }
+    
+    // ========================================================================
+    // Surveillance Schedule
+    // ========================================================================
+    private final SurveillanceSchedule schedule = new SurveillanceSchedule();
+    
+    public SurveillanceSchedule getSchedule() { return schedule; }
     
     // ========================================================================
     // Constructors

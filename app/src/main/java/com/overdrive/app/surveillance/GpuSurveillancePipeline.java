@@ -62,6 +62,10 @@ public class GpuSurveillancePipeline {
     private boolean running = false;
     private boolean recordingMode = false;  // true = recording, false = viewing only
     
+    // Saved init params — needed for re-initialization after stop/start cycle (ACC OFF→ON)
+    private android.content.res.AssetManager savedAssetManager;
+    private android.content.Context savedContext;
+    
     // Deferred recording: stored when startRecording() is called before encoder is ready
     private volatile java.io.File pendingRecordingDir = null;
     private volatile String pendingRecordingPrefix = null;
@@ -264,9 +268,42 @@ public class GpuSurveillancePipeline {
     }
     
     /**
+     * Returns true if the encoder is alive and its configured FPS no longer
+     * matches the user's selected FPS in unified config. Caller (typically
+     * RecordingModeManager at the start of an ACC ON activation) is expected
+     * to follow up with a {@link #stop()} so the next {@link #start()} re-runs
+     * {@link #init()} and picks up the new FPS through {@link #loadTargetFps()}.
+     *
+     * Returning false is the no-action case: encoder hasn't been built yet
+     * (next start() will pick up config naturally), pipeline isn't running,
+     * or FPS is already current.
+     */
+    public boolean isFpsConfigStale() {
+        if (!running || encoder == null) return false;
+        return encoder.getFps() != loadTargetFps();
+    }
+
+    /**
+     * Reads the user-selected camera FPS from unified config.
+     * Falls back to 15 if missing or unreadable. Restricted to BYD-supported
+     * values {8, 15, 25} via the UI; other values are clamped to 15 by the
+     * settings API before being persisted.
+     */
+    private static int loadTargetFps() {
+        try {
+            org.json.JSONObject cameraConfig = com.overdrive.app.config.UnifiedConfigManager
+                .loadConfig().optJSONObject("camera");
+            if (cameraConfig != null) {
+                return cameraConfig.optInt("targetFps", 15);
+            }
+        } catch (Exception ignored) {}
+        return 15;
+    }
+
+    /**
      * Reinitializes the encoder with current config settings.
      * This is a synchronous operation that waits for completion.
-     * 
+     *
      * SOTA: Properly synchronizes with GL thread to prevent EGL_BAD_SURFACE errors.
      */
     private void reinitializeEncoder() throws Exception {
@@ -316,12 +353,13 @@ public class GpuSurveillancePipeline {
         // Create new encoder with current config
         String codecMimeType = config.getCodecMimeType();
         int bitrate = config.getEffectiveBitrate();
-        
-        logger.info("Creating new encoder: " + 
-            (codecMimeType.contains("hevc") ? "H.265" : "H.264") + 
-            " @ " + (bitrate / 1_000_000) + " Mbps");
-        
-        encoder = new HardwareEventRecorderGpu(encoderWidth, encoderHeight, 15, bitrate, codecMimeType);
+        int fps = loadTargetFps();
+
+        logger.info("Creating new encoder: " +
+            (codecMimeType.contains("hevc") ? "H.265" : "H.264") +
+            " @ " + fps + "fps, " + (bitrate / 1_000_000) + " Mbps");
+
+        encoder = new HardwareEventRecorderGpu(encoderWidth, encoderHeight, fps, bitrate, codecMimeType);
         encoder.init();
         
         // Reinitialize recorder with new encoder on GL thread
@@ -381,7 +419,7 @@ public class GpuSurveillancePipeline {
      * @throws Exception if initialization fails
      */
     public void init() throws Exception {
-        init(null, null);
+        init(savedAssetManager, savedContext);
     }
     
     /**
@@ -407,6 +445,10 @@ public class GpuSurveillancePipeline {
             return;
         }
         
+        // Save for re-initialization after stop/start cycle
+        if (assetManager != null) this.savedAssetManager = assetManager;
+        if (context != null) this.savedContext = context;
+        
         logger.info("Initializing GPU surveillance pipeline...");
         
         // Ensure output directory exists
@@ -427,13 +469,17 @@ public class GpuSurveillancePipeline {
         }
         
         // 1. Create hardware encoder (shared by normal recording and surveillance)
-        // Use config settings for bitrate and codec
+        // Use config settings for bitrate, codec, and FPS. The encoder's KEY_FRAME_RATE
+        // must match the camera's setCameraFps(), otherwise the encoder's PTS pacing
+        // diverges from actual frame delivery and recorded video plays back at the
+        // wrong speed (faster or slower than realtime).
         String codecMimeType = config.getCodecMimeType();
         int bitrate = config.getEffectiveBitrate();
-        logger.info("Creating encoder with config: " + 
-            (codecMimeType.contains("hevc") ? "H.265" : "H.264") + 
-            " @ " + (bitrate / 1_000_000) + " Mbps");
-        encoder = new HardwareEventRecorderGpu(encoderWidth, encoderHeight, 15, bitrate, codecMimeType);
+        int fps = loadTargetFps();
+        logger.info("Creating encoder with config: " +
+            (codecMimeType.contains("hevc") ? "H.265" : "H.264") +
+            " @ " + fps + "fps, " + (bitrate / 1_000_000) + " Mbps");
+        encoder = new HardwareEventRecorderGpu(encoderWidth, encoderHeight, fps, bitrate, codecMimeType);
         encoder.init();
         
         // 2. Create GPU mosaic recorder (shared)
@@ -472,87 +518,43 @@ public class GpuSurveillancePipeline {
         camera = new PanoramicCameraGpu(cameraWidth, cameraHeight);
         camera.setConsumers(recorder, downscaler, sentry);
         
-        // Binder camera backend: reads from config, defaults to false (AVMCamera reflection).
-        // Enable via API or config to use bydcameramanager service instead of direct AVMCamera.
-        // This prevents glitching native camera apps and enables frame rate control.
-        try {
-            org.json.JSONObject cameraConfig = com.overdrive.app.config.UnifiedConfigManager
-                .loadConfig().optJSONObject("camera");
-            if (cameraConfig != null) {
-                boolean useBinder = cameraConfig.optBoolean("useBinderBackend", false);
-                int targetFps = cameraConfig.optInt("targetFps", 15);
-                camera.setTargetFps(targetFps);
-                if (useBinder) {
-                    camera.setUseBinderBackend(true);
-                    logger.info("Binder camera backend ENABLED (targetFps=" + targetFps + ")");
-                } else {
-                    logger.info("Camera targetFps=" + targetFps + " (from config)");
-                }
-            }
-        } catch (Exception e) {
-            logger.warn("Failed to read binder backend config: " + e.getMessage());
-        }
+        // Camera FPS config — must match the encoder FPS used above (loadTargetFps())
+        // so that camera frame delivery rate matches the encoder's KEY_FRAME_RATE.
+        camera.setTargetFps(fps);
+        logger.info("Camera targetFps=" + fps + " (from config)");
         
         // Camera config strategy:
-        // 1. BmmCameraInfo discovery → instant lookup, use if valid
-        // 2. Saved config from previous probe → use directly (no probe)
-        // 3. No saved config → use vehicle model defaults (Seal=ID1, Atto3=ID0)
+        // 1. Saved config from previous VALIDATED probe → use directly (highest trust)
+        // 2. BmmCameraInfo discovery → asks the system for the correct panoramic camera ID
+        // 3. Default camera ID 1 (correct for Seal, most common model)
         // 4. Full auto-probe only when all above fail
         String model = getVehicleModel();
         logger.info("Vehicle model: " + model);
         
         boolean configured = false;
         
-        // When binder backend is enabled, skip saved config and force auto-probe.
-        // The binder service may use different camera IDs than AVMCamera for panoramic.
-        // TODO: Remove this override after binder backend testing — save working binder IDs separately.
-        if (camera.isUseBinderBackend()) {
-            logger.info("Binder backend active — forcing auto-probe to discover panoramic camera ID");
-            camera.setAutoProbeCameras(true);
-            configured = true;  // Skip saved config / model defaults
-        }
-        
-        // Step 1: BmmCameraInfo discovery — instant camera ID lookup via HAL metadata
-        if (!configured) {
-            try {
-                int discoveredId = com.overdrive.app.camera.AvmCameraHelper.discoverPanoCameraId();
-                if (discoveredId >= 0) {
-                    logger.info("Camera discovered via BmmCameraInfo: ID " + discoveredId);
-                    camera.setCameraId(discoveredId);
-                    camera.setCameraSurfaceMode(0);
-                    camera.setAutoProbeCameras(false);
-                    configured = true;
-                    
-                    // Save discovered ID so subsequent startups can use saved config path
-                    try {
-                        org.json.JSONObject camCfg = new org.json.JSONObject();
-                        camCfg.put("probedCameraId", discoveredId);
-                        camCfg.put("probedSurfaceMode", 0);
-                        com.overdrive.app.config.UnifiedConfigManager.updateSection("camera", camCfg);
-                        logger.info("Saved BmmCameraInfo discovery: id=" + discoveredId + ", surfaceMode=0");
-                    } catch (Exception ex) {
-                        logger.warn("Failed to save discovered camera config: " + ex.getMessage());
-                    }
-                }
-            } catch (Exception e) {
-                logger.warn("BmmCameraInfo discovery error: " + e.getMessage());
-            }
-        }
-        
-        // Step 2: Saved config from previous probe/discovery
+        // Step 1: Validated saved config (probedAndValidated=true OR manualOverride=true)
         if (!configured) {
             try {
                 org.json.JSONObject cameraConfig = com.overdrive.app.config.UnifiedConfigManager
                     .loadConfig().optJSONObject("camera");
                 int savedId = cameraConfig != null ? cameraConfig.optInt("probedCameraId", -1) : -1;
                 int savedMode = cameraConfig != null ? cameraConfig.optInt("probedSurfaceMode", -1) : -1;
+                boolean validated = cameraConfig != null && cameraConfig.optBoolean("probedAndValidated", false);
+                boolean manual = cameraConfig != null && cameraConfig.optBoolean("manualOverride", false);
+                boolean fallback = cameraConfig != null && cameraConfig.optBoolean("fallbackFromProbe", false);
                 
-                if (savedId >= 0 && savedMode >= 0) {
-                    // Use saved config directly — no probe, no HAL cycling
-                    logger.info("Using saved camera config: id=" + savedId + ", surfaceMode=" + savedMode);
+                if (savedId >= 0 && savedMode >= 0 && (validated || manual)) {
+                    logger.info("Using " + (manual ? "MANUAL" : fallback ? "fallback" : "validated") + 
+                        " camera config: id=" + savedId + ", surfaceMode=" + savedMode);
                     camera.setCameraId(savedId);
                     camera.setCameraSurfaceMode(savedMode);
                     camera.setAutoProbeCameras(false);
+                    // Skip frame validation for ALL saved configs. The strip check uses
+                    // an 8x8 luma heuristic that produces false negatives when all 4 cameras
+                    // see similar scenes (parked in garage, night, uniform lighting).
+                    // A saved config was already validated — no need to re-check every startup.
+                    camera.setSkipFrameValidation(true);
                     configured = true;
                 }
             } catch (Exception e) {
@@ -560,39 +562,30 @@ public class GpuSurveillancePipeline {
             }
         }
         
-        // Step 3: Vehicle model defaults
+        // Step 2: BmmCameraInfo discovery — asks the system which camera ID is panoramic.
+        // This is how DiPlus resolves camera IDs across different vehicle models.
         if (!configured) {
-            // No saved config — use vehicle model defaults
-            // Seal / Seal U / Song Plus: camera ID 1, surfaceMode 0
-            // Atto 3 / Yuan Plus / Dolphin: camera ID 0, surfaceMode 0
-            int defaultId;
-            if (model.toLowerCase().contains("seal") || model.toLowerCase().contains("song")) {
-                defaultId = 1;
-                logger.info("Seal/Song detected — using default camera ID 1");
-            } else {
-                defaultId = 0;
-                logger.info("Atto 3/Yuan/Dolphin/other — using default camera ID 0");
-            }
-            
-            camera.setCameraId(defaultId);
-            camera.setCameraSurfaceMode(0);
-            camera.setAutoProbeCameras(false);
-            configured = true;
-            
-            // Save this default so it's used on next launch
-            try {
-                org.json.JSONObject camCfg = new org.json.JSONObject();
-                camCfg.put("probedCameraId", defaultId);
-                camCfg.put("probedSurfaceMode", 0);
-                com.overdrive.app.config.UnifiedConfigManager.updateSection("camera", camCfg);
-                logger.info("Saved default camera config: id=" + defaultId + ", surfaceMode=0");
-            } catch (Exception ex) {
-                logger.warn("Failed to save default camera config: " + ex.getMessage());
+            int discoveredId = com.overdrive.app.camera.AvmCameraHelper.discoverPanoCameraId();
+            if (discoveredId >= 0) {
+                logger.info("Using BmmCameraInfo discovered camera ID: " + discoveredId);
+                camera.setCameraId(discoveredId);
+                camera.setCameraSurfaceMode(0);
+                camera.setAutoProbeCameras(false);
+                configured = true;
             }
         }
         
-        // Step 4: If still not configured (shouldn't happen — model defaults always apply),
-        // enable auto-probe as last resort
+        // Step 3: Default camera ID 1 (correct for Seal, most common model).
+        // If wrong for other models, frame-50 recheck will detect and re-probe.
+        if (!configured) {
+            logger.info("Using default camera ID 1");
+            camera.setCameraId(1);
+            camera.setCameraSurfaceMode(0);
+            camera.setAutoProbeCameras(false);
+            configured = true;
+        }
+        
+        // Step 4: Full auto-probe as last resort (shouldn't reach here)
         if (!configured) {
             logger.warn("All camera config strategies failed — enabling auto-probe");
             camera.setAutoProbeCameras(true);
@@ -661,6 +654,40 @@ public class GpuSurveillancePipeline {
             }
             
             logger.info( "Starting GPU pipeline (autoRecord=" + autoStartRecording + ")...");
+            
+            // Re-read camera config before starting — user may have changed camera ID
+            // via the app UI menu since the pipeline was initialized.
+            try {
+                org.json.JSONObject cameraConfig = com.overdrive.app.config.UnifiedConfigManager
+                    .loadConfig().optJSONObject("camera");
+                if (cameraConfig != null) {
+                    int savedId = cameraConfig.optInt("probedCameraId", -1);
+                    int savedMode = cameraConfig.optInt("probedSurfaceMode", -1);
+                    boolean validated = cameraConfig.optBoolean("probedAndValidated", false);
+                    boolean manual = cameraConfig.optBoolean("manualOverride", false);
+                    
+                    if (savedId >= 0 && savedMode >= 0 && (validated || manual)) {
+                        int currentId = camera.getCameraId();
+                        if (currentId != savedId) {
+                            logger.info("Camera config changed since init: " + currentId + " → " + savedId +
+                                " (" + (manual ? "manual" : "validated") + ")");
+                            camera.setCameraId(savedId);
+                            camera.setCameraSurfaceMode(savedMode);
+                            camera.setAutoProbeCameras(false);
+                            camera.setSkipFrameValidation(true);
+                        }
+                    } else if (savedId < 0 && camera.getCameraId() != 1) {
+                        // User cleared manual override → revert to default
+                        logger.info("Camera config cleared — reverting to default ID 1");
+                        camera.setCameraId(1);
+                        camera.setCameraSurfaceMode(0);
+                        camera.setAutoProbeCameras(false);
+                        camera.setSkipFrameValidation(false);
+                    }
+                }
+            } catch (Exception e) {
+                logger.debug("Camera config re-read failed: " + e.getMessage());
+            }
             
             // Start camera (this creates EGL context and initializes downscaler)
             camera.start();
@@ -750,6 +777,7 @@ public class GpuSurveillancePipeline {
             
             // DON'T auto-enable streaming - enable on-demand when client requests
             // Streaming will be enabled via enableStreaming() when HTTP client connects
+            // enableStreaming() already auto-starts the pipeline if not running.
             
             // DON'T auto-enable surveillance - let caller decide
             // Surveillance should only be enabled when explicitly requested
@@ -906,14 +934,30 @@ public class GpuSurveillancePipeline {
                 }
                 logger.info("Normal recording started (dir=" + (outputDir != null ? outputDir.getName() : "default") + ", prefix=" + prefix + ")");
             } else {
-                // Encoder not ready yet (camera still probing on ACC ON).
-                // Store the request and let the pipeline start recording once the
-                // encoder format becomes available. The render loop or probe-complete
-                // callback will pick this up.
+                // Encoder not ready yet (camera still warming up). Store the
+                // request and register a one-shot listener that fires the
+                // moment the encoder publishes its output format. Without
+                // this, cold-start CONTINUOUS recording never began until
+                // the next ACC OFF/ON cycle, because checkPendingRecording()
+                // was previously only called from the camera-probe callback —
+                // which is skipped when a validated camera config exists.
                 logger.info("Encoder not ready yet — recording will start when camera is ready");
                 pendingRecordingDir = outputDir;
                 pendingRecordingPrefix = prefix;
                 recordingMode = true;
+                final HardwareEventRecorderGpu enc = recorder.getEncoder();
+                if (enc != null) {
+                    enc.setFormatAvailableListener(() -> {
+                        // Posted off the encoder thread so we don't block dequeue.
+                        new Thread(() -> {
+                            try {
+                                checkPendingRecording();
+                            } catch (Exception e) {
+                                logger.warn("Deferred recording start failed: " + e.getMessage());
+                            }
+                        }, "PendingRecKickoff").start();
+                    });
+                }
             }
         }
     }
@@ -948,6 +992,15 @@ public class GpuSurveillancePipeline {
      * Stops recording.
      */
     public void stopRecording() {
+        // CRITICAL: Clear any pending (deferred) recording request FIRST.
+        // During cold start, startRecording() defers to checkPendingRecording() if the
+        // encoder isn't ready yet. If a gear change (D→N/P) triggers stopRecording()
+        // before the encoder is ready, the pending request survives and fires later —
+        // starting recording in the wrong gear state. Clearing it here prevents that.
+        pendingRecordingDir = null;
+        pendingRecordingPrefix = null;
+        recordingMode = false;
+        
         if (recorder != null) {
             recorder.stopRecording();
             
@@ -1291,7 +1344,7 @@ public class GpuSurveillancePipeline {
     public boolean isRecording() {
         return recorder != null && recorder.isRecording();
     }
-    
+
     /**
      * Checks if in recording mode (vs viewing mode).
      */
