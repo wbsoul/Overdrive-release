@@ -8,3 +8,9 @@
 /app/.cxx
 /app/src/main/cpp/opencv
 /app/src/main/cpp/openh264
+
+# FCM service account private key — never commit to version control
+/app/src/main/assets/fcm_service_account.json
+
+# Firebase client config — contains API keys
+/app/google-services.json

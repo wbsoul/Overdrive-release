@@ -18,6 +18,7 @@ import androidx.navigation.fragment.NavHostFragment
 import androidx.navigation.ui.AppBarConfiguration
 import androidx.navigation.ui.navigateUp
 import androidx.navigation.ui.setupWithNavController
+import com.overdrive.app.logging.DaemonLogger
 import com.overdrive.app.logging.LogLevel
 import com.overdrive.app.logging.LogManager
 // import com.overdrive.app.shell.PrivilegedShellSetup
@@ -665,7 +666,7 @@ class MainActivity : AppCompatActivity() {
     }
     
     private fun setupLogListener() {
-        // Wire LogManager to LogsViewModel
+        // Wire LogManager to LogsViewModel (for Kotlin/app-context logs)
         LogManager.setLogListener(object : LogManager.LogListener {
             override fun onLog(tag: String, message: String, level: LogLevel) {
                 // Convert LogManager.LogLevel to UI LogLevel
@@ -678,6 +679,17 @@ class MainActivity : AppCompatActivity() {
                 logsViewModel.addLog(tag, message, uiLevel)
             }
         })
+
+        // Wire DaemonLogger to LogsViewModel (for Java daemon/HTTP server logs)
+        DaemonLogger.setLogListener { tag, message, level ->
+            val uiLevel = when (level) {
+                DaemonLogger.Level.DEBUG -> com.overdrive.app.ui.model.LogLevel.DEBUG
+                DaemonLogger.Level.INFO  -> com.overdrive.app.ui.model.LogLevel.INFO
+                DaemonLogger.Level.WARN  -> com.overdrive.app.ui.model.LogLevel.WARN
+                DaemonLogger.Level.ERROR -> com.overdrive.app.ui.model.LogLevel.ERROR
+            }
+            logsViewModel.addLog(tag, message, uiLevel)
+        }
     }
     
     private fun observeViewModels() {

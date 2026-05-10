@@ -38,6 +38,11 @@
             android:title="Telegram" />
 
         <item
+            android:id="@+id/fcmSettingsFragment"
+            android:icon="@drawable/ic_fcm"
+            android:title="Companion Push (FCM)" />
+
+        <item
             android:id="@+id/abrpSettingsFragment"
             android:icon="@drawable/ic_route"
             android:title="ABRP" />

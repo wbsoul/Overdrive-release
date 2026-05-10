@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Push Notifications - OverDrive</title>
+    <link rel="icon" type="image/webp" href="../shared/app-icon.webp">
+    <link rel="stylesheet" href="../shared/styles.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="app-layout">
+        <!-- Sidebar -->
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <div class="brand">
+                    <div class="brand-logo"><img src="../shared/app-icon.webp" alt="OverDrive"></div>
+                    <div class="brand-text">
+                        <span class="brand-name">OverDrive</span>
+                        <span class="brand-tagline">Sentry System</span>
+                        <span class="brand-version" id="appVersion"></span>
+                    </div>
+                </div>
+                <button class="sidebar-close" onclick="toggleSidebar()">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                </button>
+            </div>
+            <nav class="sidebar-nav">
+                <a href="index.html" class="nav-link">
+                    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M2 8V6a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-6"/>
+                        <path d="M2 12a9 9 0 0 0 8 8"/><circle cx="2" cy="12" r="2"/>
+                    </svg>
+                    <span>Live View</span>
+                </a>
+                <a href="events.html" class="nav-link">
+                    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+                        <line x1="16" y1="2" x2="16" y2="6"/>
+                        <line x1="8" y1="2" x2="8" y2="6"/>
+                        <line x1="3" y1="10" x2="21" y2="10"/>
+                    </svg>
+                    <span>Events</span>
+                </a>
+                <a href="surveillance.html" class="nav-link">
+                    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                    </svg>
+                    <span>Surveillance</span>
+                </a>
+                <a href="recording.html" class="nav-link">
+                    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="m22 8-6 4 6 4V8Z"/><rect width="14" height="12" x="2" y="6" rx="2"/>
+                    </svg>
+                    <span>Recordings</span>
+                </a>
+                <a href="performance.html" class="nav-link">
+                    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
+                    </svg>
+                    <span>Performance</span>
+                </a>
+                <a href="abrp.html" class="nav-link">
+                    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M9 18l6-6-6-6"/>
+                        <circle cx="18" cy="12" r="3"/>
+                        <circle cx="6" cy="6" r="3"/>
+                        <circle cx="6" cy="18" r="3"/>
+                    </svg>
+                    <span>ABRP</span>
+                </a>
+                <a href="mqtt.html" class="nav-link">
+                    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                        <circle cx="12" cy="12" r="2"/>
+                        <path d="M8.46 15.54A5 5 0 0 1 7 12a5 5 0 0 1 1.46-3.54"/>
+                        <path d="M15.54 8.46A5 5 0 0 1 17 12a5 5 0 0 1-1.46 3.54"/>
+                        <path d="M5.64 18.36A9 9 0 0 1 3 12a9 9 0 0 1 2.64-6.36"/>
+                        <path d="M18.36 5.64A9 9 0 0 1 21 12a9 9 0 0 1-2.64 6.36"/>
+                    </svg>
+                    <span>MQTT</span>
+                </a>
+                <a href="trips.html" class="nav-link">
+                    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M3 17h2v-7l4 4 4-4 4 4 4-4v7h2"/>
+                        <path d="M4 5h16"/>
+                    </svg>
+                    <span>Trips</span>
+                </a>
+                <a href="vehicle-control.html" class="nav-link">
+                    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="3" y="11" width="18" height="11" rx="2"/>
+                        <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                    </svg>
+                    <span>Vehicle Control</span>
+                </a>
+                <a href="notifications.html" class="nav-link active">
+                    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+                        <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+                    </svg>
+                    <span>Notifications</span>
+                </a>
+            </nav>
+            <div class="sidebar-footer">
+                <div class="status-card">
+                    <div class="status-row">
+                        <span class="status-label"><span class="status-dot" id="connDot"></span>Device</span>
+                        <span class="status-value" id="deviceId">--</span>
+                    </div>
+                    <div class="status-row">
+                        <span class="status-label">ACC</span>
+                        <span class="status-value" id="accValue">--</span>
+                    </div>
+                    <div class="status-row">
+                        <span class="status-label">
+                            <svg class="status-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <rect x="6" y="7" width="12" height="10" rx="1"/><path d="M6 10H4a1 1 0 0 0-1 1v2a1 1 0 0 0 1 1h2"/><path d="M18 10h2a1 1 0 0 1 1 1v2a1 1 0 0 1-1 1h-2"/>
+                            </svg>12V
+                        </span>
+                        <span class="status-value" id="batteryValue">--</span>
+                    </div>
+                    <div class="status-row">
+                        <span class="status-label">Sentry</span>
+                        <span class="status-value" id="survStatus">OFF</span>
+                    </div>
+                    <div class="status-row">
+                        <span class="status-label">
+                            <span id="networkIcon"><svg class="status-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><circle cx="12" cy="20" r="1"/></svg></span>Net
+                        </span>
+                        <span class="status-value" id="networkValue">--</span>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <header class="page-header">
+                <button class="menu-btn" onclick="toggleSidebar()">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/>
+                    </svg>
+                </button>
+                <h1 class="page-title">Push Notifications</h1>
+            </header>
+
+            <div class="content-area">
+                <div class="settings-grid">
+
+                    <!-- Companion App Status -->
+                    <div class="card">
+                        <div class="card-header">
+                            <div class="card-title">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="2" width="14" height="20" rx="2"/><line x1="12" y1="18" x2="12" y2="18"/></svg>
+                                Companion App Status
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <div style="display:flex; align-items:center; gap:10px; padding:12px 0;">
+                                <span id="fcmStatusDot" style="display:inline-block; width:10px; height:10px; border-radius:50%; background:#9E9E9E; flex-shrink:0;"></span>
+                                <span id="fcmStatusText" style="font-size:14px; font-weight:500; color:var(--text-primary);">Loading...</span>
+                            </div>
+                            <div id="fcmUpdatedAt" style="display:none; font-size:12px; color:var(--text-muted); padding-bottom:8px;"></div>
+                            <p style="font-size:12px; color:var(--text-muted); margin:0 0 12px;">
+                                Register the Companion app on your phone to receive push notifications for vehicle events.
+                            </p>
+                            <button id="btnRemoveDevice" class="btn btn-danger" onclick="Fcm.removeDevice()" style="display:none; width:100%;">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+                                Remove Device
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Push Notifications Master Toggle -->
+                    <div class="card">
+                        <div class="card-header">
+                            <div class="card-title">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+                                Push Notifications
+                            </div>
+                        </div>
+                        <div class="card-body" style="padding:0;">
+                            <div class="setting-row" style="border-bottom:none;">
+                                <div class="setting-info">
+                                    <div class="setting-name">Enable push notifications</div>
+                                    <div class="setting-desc">Send push notifications to the Companion app when events occur</div>
+                                </div>
+                                <div class="setting-control">
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" id="toggleMaster" onchange="Fcm.setPref('master', this.checked)">
+                                        <span class="toggle-slider"></span>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Per-Event Settings -->
+                    <div class="card" id="cardEvents">
+                        <div class="card-header">
+                            <div class="card-title">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93A10 10 0 0 0 4.93 19.07"/><path d="M4.93 4.93a10 10 0 0 0 14.14 14.14"/></svg>
+                                Events to Notify
+                            </div>
+                        </div>
+                        <div class="card-body" style="padding:0;">
+                            <div class="setting-row">
+                                <div class="setting-info">
+                                    <div class="setting-name">Motion detected</div>
+                                    <div class="setting-desc">Notify when surveillance detects motion</div>
+                                </div>
+                                <div class="setting-control">
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" id="toggleMotion" onchange="Fcm.setPref('motion', this.checked)">
+                                        <span class="toggle-slider"></span>
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="setting-row">
+                                <div class="setting-info">
+                                    <div class="setting-name">Critical alerts</div>
+                                    <div class="setting-desc">Notify on critical system events</div>
+                                </div>
+                                <div class="setting-control">
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" id="toggleCritical" onchange="Fcm.setPref('critical', this.checked)">
+                                        <span class="toggle-slider"></span>
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="setting-row">
+                                <div class="setting-info">
+                                    <div class="setting-name">Tunnel URL updated</div>
+                                    <div class="setting-desc">Notify when the remote access tunnel URL changes</div>
+                                </div>
+                                <div class="setting-control">
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" id="toggleTunnel" onchange="Fcm.setPref('tunnel', this.checked)">
+                                        <span class="toggle-slider"></span>
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="setting-row">
+                                <div class="setting-info">
+                                    <div class="setting-name">Video ready</div>
+                                    <div class="setting-desc">Notify when a surveillance video clip is available</div>
+                                </div>
+                                <div class="setting-control">
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" id="toggleVideo" onchange="Fcm.setPref('video', this.checked)">
+                                        <span class="toggle-slider"></span>
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="setting-row" style="border-bottom:none;">
+                                <div class="setting-info">
+                                    <div class="setting-name">Proximity alert</div>
+                                    <div class="setting-desc">Notify when the proximity sensor is triggered</div>
+                                </div>
+                                <div class="setting-control">
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" id="toggleProximity" onchange="Fcm.setPref('proximity', this.checked)">
+                                        <span class="toggle-slider"></span>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script src="../shared/auth.js"></script>
+    <script src="../shared/core.js"></script>
+    <script>
+        const Fcm = {
+            async load() {
+                try {
+                    const [statusRes, prefsRes] = await Promise.all([
+                        fetch('/api/fcm/status'),
+                        fetch('/api/fcm/prefs')
+                    ]);
+                    const status = await statusRes.json();
+                    const prefs = await prefsRes.json();
+
+                    // Status card
+                    const dot = document.getElementById('fcmStatusDot');
+                    const text = document.getElementById('fcmStatusText');
+                    const updatedAt = document.getElementById('fcmUpdatedAt');
+                    const removeBtn = document.getElementById('btnRemoveDevice');
+
+                    if (status.registered) {
+                        dot.style.background = '#4CAF50';
+                        text.textContent = 'Registered';
+                        if (status.updatedAt) {
+                            updatedAt.textContent = 'Last updated: ' + status.updatedAt;
+                            updatedAt.style.display = 'block';
+                        }
+                        removeBtn.style.display = 'block';
+                    } else {
+                        dot.style.background = '#9E9E9E';
+                        text.textContent = 'Not registered';
+                        updatedAt.style.display = 'none';
+                        removeBtn.style.display = 'none';
+                    }
+
+                    // Prefs toggles
+                    document.getElementById('toggleMaster').checked = prefs.master;
+                    document.getElementById('toggleMotion').checked = prefs.motion;
+                    document.getElementById('toggleCritical').checked = prefs.critical;
+                    document.getElementById('toggleTunnel').checked = prefs.tunnel;
+                    document.getElementById('toggleVideo').checked = prefs.video;
+                    document.getElementById('toggleProximity').checked = prefs.proximity;
+                    this.updateEventsCardEnabled(prefs.master);
+
+                } catch (e) {
+                    console.error('[FCM] Failed to load:', e);
+                }
+            },
+
+            async setPref(key, value) {
+                if (key === 'master') this.updateEventsCardEnabled(value);
+                try {
+                    await fetch('/api/fcm/prefs', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ [key]: value })
+                    });
+                } catch (e) {
+                    console.error('[FCM] Failed to save pref:', e);
+                    BYD.core.showToast('Failed to save setting', 'error');
+                }
+            },
+
+            async removeDevice() {
+                if (!confirm('Remove the registered Companion device?')) return;
+                try {
+                    // Clear on server by registering an empty token isn't supported;
+                    // instead call the dedicated clear endpoint
+                    await fetch('/api/fcm/clear', { method: 'POST' });
+                } catch (_) {}
+                await this.load();
+                BYD.core.showToast('Companion device removed', 'success');
+            },
+
+            updateEventsCardEnabled(enabled) {
+                const card = document.getElementById('cardEvents');
+                card.style.opacity = enabled ? '1' : '0.4';
+                card.querySelectorAll('input[type=checkbox]').forEach(cb => {
+                    if (cb.id !== 'toggleMaster') cb.disabled = !enabled;
+                });
+            }
+        };
+
+        document.addEventListener('DOMContentLoaded', () => {
+            BYD.core.init();
+            Fcm.load();
+        });
+
+        function toggleSidebar() {
+            document.getElementById('sidebar').classList.toggle('open');
+        }
+    </script>
+</body>
+</html>

@@ -1,5 +1,6 @@
 package com.overdrive.app.proximity;
 
+import com.overdrive.app.fcm.FcmSender;
 import com.overdrive.app.logging.DaemonLogger;
 import com.overdrive.app.storage.StorageManager;
 import com.overdrive.app.surveillance.GpuSurveillancePipeline;
@@ -156,6 +157,9 @@ public class ProximityRecordingHandler {
             
             TelegramNotifier.sendMessage(message);
             logger.info("Telegram notification sent: " + triggerLevel);
+
+            // FCM push to Companion app (independent of Telegram)
+            FcmSender.notifyProximity(triggerLevel, timestamp);
             
         } catch (Exception e) {
             logger.error("Failed to send Telegram notification: " + e.getMessage());

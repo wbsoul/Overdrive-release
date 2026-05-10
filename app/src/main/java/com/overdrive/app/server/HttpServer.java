@@ -217,10 +217,11 @@ public class HttpServer {
     }
 
     private void handleClient(Socket client) {
+        OutputStream out = null;
         try {
             client.setSoTimeout(15000);
             BufferedReader reader = new BufferedReader(new InputStreamReader(client.getInputStream()));
-            OutputStream out = new BufferedOutputStream(client.getOutputStream());
+            out = new BufferedOutputStream(client.getOutputStream());
 
             String requestLine = reader.readLine();
             if (requestLine == null) {
@@ -480,7 +481,12 @@ public class HttpServer {
                 HttpResponse.sendError(out, 404, "Not Found");
             }
         } catch (Exception e) {
-            CameraDaemon.log("HTTP error: " + e.getMessage());
+            CameraDaemon.log("HTTP error: " + e + " " + android.util.Log.getStackTraceString(e));
+            // Try to send a 500 so the caller gets a proper HTTP response
+            // rather than a connection reset (which proxies/Cloudflare report as 502).
+            if (out != null) {
+                try { HttpResponse.sendError(out, 500, "Internal Server Error"); } catch (Exception ignored) {}
+            }
         } finally {
             try { client.close(); } catch (Exception e) {}
         }
@@ -576,7 +582,12 @@ public class HttpServer {
         if (path.startsWith("/api/storage/external")) {
             return ExternalStorageApiHandler.handle(path, method, body, out);
         }
-        
+
+        // FCM Companion registration API
+        if (path.startsWith("/api/fcm/")) {
+            return FcmApiHandler.handle(method, path, body, out);
+        }
+
         return false;
     }
     

@@ -77,6 +77,12 @@
         tools:layout="@layout/fragment_telegram_settings" />
 
     <fragment
+        android:id="@+id/fcmSettingsFragment"
+        android:name="com.overdrive.app.ui.fragment.FcmSettingsFragment"
+        android:label="Companion App Push Notifications (FCM)"
+        tools:layout="@layout/fragment_fcm_settings" />
+
+    <fragment
         android:id="@+id/abrpSettingsFragment"
         android:name="com.overdrive.app.ui.fragment.WebViewFragment"
         android:label="ABRP"

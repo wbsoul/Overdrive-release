@@ -97,6 +97,17 @@ public class DaemonLogger {
     private static Config globalConfig = Config.defaults();
     private static final ConcurrentHashMap<String, DaemonLogger> instances = new ConcurrentHashMap<>();
     private static final Object globalLock = new Object();
+
+    /** Optional listener for in-process log forwarding (e.g. to the UI log panel). */
+    public interface LogListener {
+        void onLog(String tag, String message, Level level);
+    }
+
+    private static volatile LogListener logListener = null;
+
+    public static void setLogListener(LogListener listener) {
+        logListener = listener;
+    }
     
     // ==================== INSTANCE MEMBERS ====================
     
@@ -216,6 +227,12 @@ public class DaemonLogger {
         // File log if enabled globally AND for this specific tag
         if (globalConfig.enableFileLog && DaemonLogConfig.isFileLoggingEnabled(tag)) {
             writeToFile(logLine);
+        }
+
+        // Forward to in-process listener (e.g. UI log panel) — never throws
+        LogListener ll = logListener;
+        if (ll != null) {
+            try { ll.onLog(tag, message, level); } catch (Exception ignored) {}
         }
     }
     
