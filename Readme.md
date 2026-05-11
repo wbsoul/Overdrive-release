@@ -16,6 +16,16 @@ Free, open-source dashcam and sentry mode app built specifically for BYD vehicle
 
 ---
 
+> **⚠️ Experimental Fork — Proof of Concept**
+>
+> **This repository is a fork of [yash-srivastava/Overdrive-release](https://github.com/yash-srivastava/Overdrive-release), modified as an experimental proof of concept to explore companion-app integration with the [OverDrive Companion](https://github.com/wbsoul/OverDriveCompanion) project.**
+>
+> The changes introduced here — including FCM push notifications, deep-link navigation, and extended telemetry — are exploratory in nature and are not part of the official OverDrive release. They are intended to validate the technical feasibility of a companion application that bridges the on-vehicle OverDrive daemon with an external Android device, enabling remote monitoring and alerting without any third-party cloud dependency.
+>
+> **For the stable, production-ready release, please refer to the [upstream repository](https://github.com/yash-srivastava/Overdrive-release).**
+
+---
+
 <p align="center">
   <a href="https://player.cloudinary.com/embed/?cloud_name=dhwuuoz67&public_id=Demo_nqf0ky">
     <img src="https://github.com/user-attachments/assets/d5faeb2a-96dd-4737-86f4-2e87af52ec4c" alt="Click to Watch OverDrive Demo" width="100%">

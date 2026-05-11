@@ -356,6 +356,11 @@ input, select { font-family: inherit; }
     font-size: 20px;
     font-weight: 600;
     letter-spacing: -0.02em;
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    white-space: nowrap;
+    pointer-events: none;
 }
 
 .header-actions {
