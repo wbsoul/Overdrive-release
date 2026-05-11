@@ -69,7 +69,12 @@ public class FcmSender {
 
     private FcmSender() {}
     public static void init(Context context) {
-        appContext = context.getApplicationContext();
+        if (context != null) {
+            appContext = context.getApplicationContext();
+            if (appContext == null) appContext = context;
+        }
+        // If context is null (daemon process with no Android context),
+        // appContext stays null and loadServiceAccount() will fall back to filesystem.
     }
     // -------------------------------------------------------------------------
     // Public send methods
@@ -90,7 +95,7 @@ public class FcmSender {
         if (aiDetection != null && !aiDetection.isEmpty()) {
             body.append(" — ").append(aiDetection).append(" detected");
         }
-        sendAsync(title, body.toString(), "video");
+        sendAsync(title, body.toString(), "video", filePath);
     }
 
     public static void notifyCritical(String criticalType, String details) {
@@ -111,6 +116,10 @@ public class FcmSender {
     // -------------------------------------------------------------------------
 
     private static void sendAsync(String title, String body, String eventType) {
+        sendAsync(title, body, eventType, null);
+    }
+
+    private static void sendAsync(String title, String body, String eventType, String filePath) {
         EXECUTOR.execute(() -> {
             try {
                 String deviceToken = FcmTokenStore.getInstance().getToken();
@@ -137,6 +146,12 @@ public class FcmSender {
 
                 JSONObject data = new JSONObject();
                 data.put("event_type", eventType);
+                if (filePath != null && !filePath.isEmpty()) {
+                    data.put("action", "play_video");
+                    data.put("file_name", new java.io.File(filePath).getName());
+                } else {
+                    data.put("action", "open_events");
+                }
 
                 JSONObject message = new JSONObject();
                 message.put("token", deviceToken);
@@ -262,13 +277,21 @@ public class FcmSender {
         return KeyFactory.getInstance("RSA").generatePrivate(spec);
     }
 
+    private static final java.io.File SERVICE_ACCOUNT_FILE =
+            new java.io.File("/data/local/tmp/fcm_service_account.json");
+
     private static ServiceAccount loadServiceAccount() {
-        if (appContext == null) {
-            Log.e(TAG, "FcmSender.init(context) was not called");
-            return null;
-        }
-        AssetManager assets = appContext.getAssets();
-        try (InputStream is = assets.open(ASSET_NAME)) {
+        // Prefer assets (app process); fall back to extracted filesystem copy (daemon process).
+        InputStream is = null;
+        try {
+            if (appContext != null) {
+                is = appContext.getAssets().open(ASSET_NAME);
+            } else if (SERVICE_ACCOUNT_FILE.exists()) {
+                is = new java.io.FileInputStream(SERVICE_ACCOUNT_FILE);
+            } else {
+                Log.e(TAG, "Service account not available (no context, no file at " + SERVICE_ACCOUNT_FILE + ")");
+                return null;
+            }
             byte[] data = new byte[is.available()];
             //noinspection ResultOfMethodCallIgnored
             is.read(data);
@@ -279,8 +302,10 @@ public class FcmSender {
             sa.privateKeyPem = json.getString("private_key");
             return sa;
         } catch (Exception e) {
-            Log.e(TAG, "Failed to read " + ASSET_NAME + " from assets: " + e.getMessage());
+            Log.e(TAG, "Failed to read service account: " + e.getMessage());
             return null;
+        } finally {
+            if (is != null) try { is.close(); } catch (Exception ignored) {}
         }
     }
 

@@ -188,6 +188,7 @@ object PreferencesManager {
     }
     
     @Deprecated("Use unified storage via ZrokController instead")
+    @Suppress("DEPRECATION")
     fun hasZrokEnableToken(): Boolean {
         return !getZrokEnableToken().isNullOrBlank()
     }

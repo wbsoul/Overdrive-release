@@ -166,7 +166,7 @@ class CameraDaemonController(
         Thread {
             val response = sendTcpCommandWithResponse("""{"cmd":"getStreamMode"}""")
             val mode = try {
-                JSONObject(response ?: "{}").optString("mode", null)
+                JSONObject(response ?: "{}").optString("mode", "").takeIf { it.isNotEmpty() }
             } catch (e: Exception) {
                 null
             }

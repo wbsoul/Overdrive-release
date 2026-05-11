@@ -26,8 +26,10 @@ object PresetCommands {
         // Log commands
         PresetCommand("Proxy Logs", "cat /data/local/tmp/singbox.log | tail -50", "Logs"),
         PresetCommand("Tunnel Logs", "cat /data/local/tmp/cloudflared.log | tail -50", "Logs"),
-        PresetCommand("Camera Logs", "cat /data/local/tmp/byd_cam_daemon.log | tail -50", "Logs"),
+        PresetCommand("Camera Logs", "cat /data/local/tmp/cam_daemon.log | tail -50", "Logs"),
         PresetCommand("Sentry Logs", "cat /data/local/tmp/sentry_daemon.log | tail -50", "Logs"),
+        PresetCommand("FCM Logs", "cat /data/local/tmp/cam_daemon.log | grep -i fcm | tail -50", "Logs"),
+        PresetCommand("FCM Logcat", "logcat -d -s FcmApiHandler:* FcmTokenStore:* FcmSender:* FcmEventListener:* -v time | tail -50", "Logs"),
         
         // Control commands
         PresetCommand("Kill Proxy", "pkill -9 -f sing-box", "Control"),

@@ -208,16 +208,28 @@ BYD.events = {
         const prevBtn = document.getElementById('prevPageBtn');
         const nextBtn = document.getElementById('nextPageBtn');
         const info = document.getElementById('paginationInfo');
+        const paginationTop = document.getElementById('paginationTop');
+        const prevBtnTop = document.getElementById('prevPageBtnTop');
+        const nextBtnTop = document.getElementById('nextPageBtnTop');
+        const infoTop = document.getElementById('paginationInfoTop');
         
         if (this.totalPages <= 1) {
             pagination.style.display = 'none';
+            if (paginationTop) paginationTop.style.display = 'none';
             return;
         }
         
+        const pageText = 'Page ' + this.currentPage + ' of ' + this.totalPages;
         pagination.style.display = 'flex';
         prevBtn.disabled = this.currentPage <= 1;
         nextBtn.disabled = this.currentPage >= this.totalPages;
-        info.textContent = 'Page ' + this.currentPage + ' of ' + this.totalPages;
+        info.textContent = pageText;
+        if (paginationTop) {
+            paginationTop.style.display = 'flex';
+            prevBtnTop.disabled = this.currentPage <= 1;
+            nextBtnTop.disabled = this.currentPage >= this.totalPages;
+            infoTop.textContent = pageText;
+        }
     },
     
     prevPage() {

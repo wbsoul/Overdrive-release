@@ -101,7 +101,7 @@
                         <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
                         <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
                     </svg>
-                    <span>Notifications</span>
+                    <span>Companion Push (FCM)</span>
                 </a>
             </nav>
             <div class="sidebar-footer">
@@ -163,7 +163,8 @@
                                 <span id="fcmStatusDot" style="display:inline-block; width:10px; height:10px; border-radius:50%; background:#9E9E9E; flex-shrink:0;"></span>
                                 <span id="fcmStatusText" style="font-size:14px; font-weight:500; color:var(--text-primary);">Loading...</span>
                             </div>
-                            <div id="fcmUpdatedAt" style="display:none; font-size:12px; color:var(--text-muted); padding-bottom:8px;"></div>
+                            <div id="fcmUpdatedAt" style="display:none; font-size:12px; color:var(--text-muted); padding-bottom:4px;"></div>
+                            <div id="fcmInstallationId" style="display:none; font-size:12px; color:var(--text-muted); padding-bottom:8px; word-break:break-all;"></div>
                             <p style="font-size:12px; color:var(--text-muted); margin:0 0 12px;">
                                 Register the Companion app on your phone to receive push notifications for vehicle events.
                             </p>
@@ -292,6 +293,7 @@
                     const dot = document.getElementById('fcmStatusDot');
                     const text = document.getElementById('fcmStatusText');
                     const updatedAt = document.getElementById('fcmUpdatedAt');
+                    const installationIdEl = document.getElementById('fcmInstallationId');
                     const removeBtn = document.getElementById('btnRemoveDevice');
 
                     if (status.registered) {
@@ -301,11 +303,18 @@
                             updatedAt.textContent = 'Last updated: ' + status.updatedAt;
                             updatedAt.style.display = 'block';
                         }
+                        if (status.installationId) {
+                            installationIdEl.textContent = 'Installation ID: ' + status.installationId;
+                            installationIdEl.style.display = 'block';
+                        } else {
+                            installationIdEl.style.display = 'none';
+                        }
                         removeBtn.style.display = 'block';
                     } else {
                         dot.style.background = '#9E9E9E';
                         text.textContent = 'Not registered';
                         updatedAt.style.display = 'none';
+                        installationIdEl.style.display = 'none';
                         removeBtn.style.display = 'none';
                     }
 

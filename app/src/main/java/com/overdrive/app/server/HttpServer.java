@@ -86,6 +86,23 @@ public class HttpServer {
             // Extract overlay icons for telemetry overlay
             extractAssetDir(assetManager, "overlay", new File("/data/local/tmp/overlay"));
             
+            // Extract FCM service account JSON so the daemon process can read it
+            // (daemon has no Android context, can't open assets directly)
+            try {
+                File fcmSaFile = new File("/data/local/tmp/fcm_service_account.json");
+                try (InputStream in = assetManager.open("fcm_service_account.json");
+                     java.io.FileOutputStream fos = new java.io.FileOutputStream(fcmSaFile)) {
+                    byte[] buf = new byte[4096];
+                    int n;
+                    while ((n = in.read(buf)) != -1) fos.write(buf, 0, n);
+                }
+                fcmSaFile.setReadable(true, false);
+                fcmSaFile.setWritable(false, false);
+                CameraDaemon.log("Extracted fcm_service_account.json to " + fcmSaFile.getAbsolutePath());
+            } catch (Exception e) {
+                CameraDaemon.log("Could not extract fcm_service_account.json: " + e.getMessage());
+            }
+
             // Extract BYD cloud crypto tables
             try {
                 String bydAsset = "byd/bangcle_tables.bin";
@@ -418,6 +435,10 @@ public class HttpServer {
                 if (!serveStaticFile(out, "local/vehicle-control.html")) {
                     HttpResponse.sendError(out, 404, "vehicle-control.html not found");
                 }
+                } else if (path.equals("/notifications.html") || path.equals("/notifications")) {
+                    if (!serveStaticFile(out, "local/notifications.html")) {
+                        HttpResponse.sendError(out, 404, "notifications.html not found");
+                    }
             } else if (path.startsWith("/shared/") || path.startsWith("/local/")) {
                 // Strip ?query and #fragment so cache-busting versions like
                 // ?v=12 resolve to the same file on disk.

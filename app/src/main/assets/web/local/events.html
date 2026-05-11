@@ -1135,7 +1135,7 @@
                         <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
                         <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
                     </svg>
-                    <span>Notifications</span>
+                    <span>Companion Push (FCM)</span>
                 </a>
             </nav>
             <div class="sidebar-footer">
@@ -1367,6 +1367,21 @@
                             </button>
                             <button class="select-action-btn cancel" onclick="BYD.events.exitSelectMode()">Cancel</button>
                         </div>
+                    </div>
+                    <div class="pagination" id="paginationTop" style="display: none;">
+                        <button class="pagination-btn" id="prevPageBtnTop" onclick="BYD.events.prevPage()" disabled>
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M15 18l-6-6 6-6"/>
+                            </svg>
+                            Prev
+                        </button>
+                        <span class="pagination-info" id="paginationInfoTop">Page 1 of 1</span>
+                        <button class="pagination-btn" id="nextPageBtnTop" onclick="BYD.events.nextPage()" disabled>
+                            Next
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M9 18l6-6-6-6"/>
+                            </svg>
+                        </button>
                     </div>
                     <div class="recordings-list" id="recordingsList">
                         <div class="loading">

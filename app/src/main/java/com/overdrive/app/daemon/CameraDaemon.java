@@ -349,6 +349,22 @@ public class CameraDaemon {
         
         // SOTA: Initialize unified config manager (handles migration from legacy configs)
         com.overdrive.app.config.UnifiedConfigManager.init();
+
+        // Initialize FCM singletons — must happen before HttpServer handles any /api/fcm/* requests
+        // Wrapped in try-catch: FCM init failure must never crash the daemon and kill the HTTP server
+        try {
+            android.content.Context fcmCtx = com.overdrive.app.daemon.DaemonBootstrap.getContext();
+            com.overdrive.app.fcm.FcmTokenStore.init(fcmCtx);
+            com.overdrive.app.fcm.FcmPreferences.init(fcmCtx);
+            com.overdrive.app.fcm.FcmSender.init(fcmCtx);
+            // Subscribe in the daemon process so events published by SurveillanceEngineGpu
+            // (which runs here, not in the app process) are forwarded to FcmSender.
+            com.overdrive.app.telegram.event.TelegramEventBus.getInstance()
+                    .subscribe(new com.overdrive.app.fcm.FcmEventListener());
+            log("FCM event listener subscribed");
+        } catch (Exception e) {
+            log("FCM init failed (FCM features unavailable): " + e.getMessage());
+        }
         
         // Load persisted quality settings BEFORE initializing surveillance
         // This ensures the encoder is created with the correct settings

@@ -31,9 +31,6 @@ class DaemonsViewModel(app: Application) : AndroidViewModel(app) {
     // Expose zrok controller for tunnel URL access
     val zrokController: ZrokController
 
-    // Expose tailscale controller for tunnel URL access
-    val tailscaleController: TailscaleController
-    
     // Expose camera daemon controller for startup manager
     val cameraDaemonController: CameraDaemonController
     
@@ -54,7 +51,6 @@ class DaemonsViewModel(app: Application) : AndroidViewModel(app) {
     init {
         cloudflaredController = CloudflaredController(adbLauncher)
         zrokController = ZrokController(app, adbLauncher)
-        tailscaleController = TailscaleController(app, adbLauncher)
         cameraDaemonController = CameraDaemonController(app, adbLauncher)
         singboxController = SingboxController(adbLauncher)
         
@@ -65,7 +61,6 @@ class DaemonsViewModel(app: Application) : AndroidViewModel(app) {
             DaemonType.SINGBOX_PROXY to singboxController,
             DaemonType.CLOUDFLARED_TUNNEL to cloudflaredController,
             DaemonType.ZROK_TUNNEL to zrokController,
-            DaemonType.TAILSCALE_TUNNEL to tailscaleController,
             DaemonType.TELEGRAM_DAEMON to TelegramDaemonController(adbLauncher)
         )
         
@@ -85,7 +80,6 @@ class DaemonsViewModel(app: Application) : AndroidViewModel(app) {
                 // Only refresh tunnel statuses periodically
                 refreshDaemonStatus(DaemonType.CLOUDFLARED_TUNNEL)
                 refreshDaemonStatus(DaemonType.ZROK_TUNNEL)
-                refreshDaemonStatus(DaemonType.TAILSCALE_TUNNEL)
                 android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(this, 30000)
             }
         }, 30000)
@@ -200,21 +194,6 @@ class DaemonsViewModel(app: Application) : AndroidViewModel(app) {
                 doRefreshDaemonStatus(type, controller, logResult)
             }
             return
-        } else if (type == DaemonType.TAILSCALE_TUNNEL) {
-            tailscaleController.needsLogin { needsLogin ->
-                if (needsLogin) {
-                    // No token configured - show needs config state
-                    updateTailscaleNeedsLogin("Not logged in. Tap to set up.")
-                    if (logResult) {
-                        LogManager.getInstance().debug("Daemons", "${type.name}: Not logged in")
-                    }
-                    return@needsLogin
-                }
-
-                // User logged in, proceed with normal status check
-                doRefreshDaemonStatus(type, controller, logResult)
-            }
-            return
         }
         
         doRefreshDaemonStatus(type, controller, logResult)
@@ -265,19 +244,6 @@ class DaemonsViewModel(app: Application) : AndroidViewModel(app) {
                                     }
                                 }
                             }
-                        } else if (type == DaemonType.TAILSCALE_TUNNEL) {
-                            // For tailscale, also fetch the tunnel URL
-                            tailscaleController.refreshTunnelUrl { url ->
-                                val statusText = url ?: "Running"
-                                updateStateWithSubprocesses(type, DaemonStatus.RUNNING, statusText, uptime, subprocesses)
-                                if (logResult) {
-                                    val uptimeStr = uptime?.let { " (uptime: $it)" } ?: ""
-                                    LogManager.getInstance().info("Daemons", "${type.name}: Running$uptimeStr" + (url?.let { " - $it" } ?: ""))
-                                    subprocesses.forEach { sp ->
-                                        LogManager.getInstance().debug("Daemons", "  └─ ${sp.name} (PID: ${sp.pid}, uptime: ${sp.uptime})")
-                                    }
-                                }
-                            }
                         } else {
                             updateStateWithSubprocesses(type, DaemonStatus.RUNNING, "Running", uptime, subprocesses)
                             if (logResult) {
@@ -307,7 +273,6 @@ class DaemonsViewModel(app: Application) : AndroidViewModel(app) {
             DaemonType.SINGBOX_PROXY -> "sing-box"
             DaemonType.CLOUDFLARED_TUNNEL -> "cloudflared tunnel"
             DaemonType.ZROK_TUNNEL -> "zrok share"
-            DaemonType.TAILSCALE_TUNNEL -> "tailscaled"
             DaemonType.TELEGRAM_DAEMON -> "telegram_bot_daemon"
         }
     }
@@ -320,7 +285,6 @@ class DaemonsViewModel(app: Application) : AndroidViewModel(app) {
             DaemonType.SINGBOX_PROXY -> listOf("sing-box")
             DaemonType.CLOUDFLARED_TUNNEL -> listOf("cloudflared")
             DaemonType.ZROK_TUNNEL -> listOf("zrok")
-            DaemonType.TAILSCALE_TUNNEL -> listOf("tailscaled")
             DaemonType.TELEGRAM_DAEMON -> listOf("telegram_bot_daemon")
         }
     }
@@ -372,15 +336,6 @@ class DaemonsViewModel(app: Application) : AndroidViewModel(app) {
         _daemonStates.postValue(currentStates)
     }
 
-    /**
-     * Update Tailscale state to indicate needs login.
-     */
-    fun updateTailscaleNeedsLogin(message: String) {
-        val currentStates = _daemonStates.value?.toMutableMap() ?: mutableMapOf()
-        currentStates[DaemonType.TAILSCALE_TUNNEL] = DaemonState.needsConfig(DaemonType.TAILSCALE_TUNNEL, message)
-        _daemonStates.postValue(currentStates)
-    }
-    
     /**
      * Start Location Sidecar service via ADB (grants permissions first).
      * This reuses the existing adbLauncher to avoid multiple ADB auth popups.

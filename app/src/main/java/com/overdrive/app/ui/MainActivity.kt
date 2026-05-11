@@ -9,6 +9,7 @@ import android.view.View
 import android.widget.ImageButton
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.addCallback
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.GravityCompat
@@ -128,6 +129,17 @@ class MainActivity : AppCompatActivity() {
         // Device ID is already synced above via generateDeviceId() which writes to file async
         // The daemon will reload from file when getState() is called
         
+        // Handle back press: close drawer if open, otherwise default back behaviour
+        onBackPressedDispatcher.addCallback(this) {
+            if (drawerLayout.isDrawerOpen(GravityCompat.START)) {
+                drawerLayout.closeDrawer(GravityCompat.START)
+            } else {
+                isEnabled = false
+                onBackPressedDispatcher.onBackPressed()
+                isEnabled = true
+            }
+        }
+        
         // Start Location Sidecar service (establishes ADB connection)
         startLocationSidecarService()
         
@@ -156,6 +168,9 @@ class MainActivity : AppCompatActivity() {
         
         // Handle Location start intent (from SentryDaemon restart)
         handleLocationStartIntent(intent)
+
+        // Handle FCM notification tap deep link
+        handleFcmNotificationIntent(intent)
         
         // Check traffic monitor status early so drawer shows correct state
         checkTrafficMonitorStatus()
@@ -218,7 +233,10 @@ class MainActivity : AppCompatActivity() {
     
     override fun onNewIntent(intent: android.content.Intent?) {
         super.onNewIntent(intent)
-        intent?.let { handleLocationStartIntent(it) }
+        intent?.let {
+            handleLocationStartIntent(it)
+            handleFcmNotificationIntent(it)
+        }
     }
     
     override fun onResume() {
@@ -500,6 +518,55 @@ class MainActivity : AppCompatActivity() {
     }
     
     /**
+     * Handle FCM push notification deep link.
+     *
+     * When the user taps an FCM notification, Play Services opens MainActivity and puts
+     * the FCM `data` payload as intent extras. We read `action` and optionally `file_name`
+     * to navigate directly to the relevant screen:
+     *   - action=play_video + file_name present → VideoPlayerFragment (local file)
+     *   - anything else                          → Events (RecordingLibraryFragment)
+     *
+     * A 600ms delay is used so navController is fully set up before navigating.
+     */
+    private fun handleFcmNotificationIntent(intent: android.content.Intent?) {
+        val fcmAction = intent?.getStringExtra("action") ?: return
+        if (fcmAction != "play_video" && fcmAction != "open_events") return
+
+        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+            try {
+                if (fcmAction == "play_video") {
+                    val fileName = intent.getStringExtra("file_name") ?: ""
+                    if (fileName.isNotEmpty()) {
+                        // Locate file in known surveillance/recording directories
+                        val candidateDirs = listOf(
+                            "/sdcard/DCIM/BYDCam/surveillance",
+                            "/sdcard/DCIM/BYDCam",
+                            "/storage/emulated/0/DCIM/BYDCam/surveillance",
+                            "/storage/emulated/0/DCIM/BYDCam"
+                        )
+                        val file = candidateDirs
+                            .map { java.io.File(it, fileName) }
+                            .firstOrNull { it.exists() }
+
+                        if (file != null) {
+                            val bundle = android.os.Bundle().apply {
+                                putString("video_path", file.absolutePath)
+                                putString("video_title", file.nameWithoutExtension)
+                            }
+                            navController.navigate(R.id.action_global_videoPlayer, bundle)
+                            return@postDelayed
+                        }
+                    }
+                }
+                // Fallback: open events library
+                navController.navigate(R.id.eventsFragment)
+            } catch (e: Exception) {
+                android.util.Log.e("MainActivity", "FCM deep link navigation error: ${e.message}")
+            }
+        }, 600)
+    }
+
+    /**
      * Setup the privileged shell (UID 1000) for daemon management.
      * This must be done before starting any daemons that need elevated privileges.
      */
@@ -719,30 +786,16 @@ class MainActivity : AppCompatActivity() {
             updateUrlDisplay()
         }
 
-        // Observe tunnel URL from tailscale controller
-        daemonsViewModel.tailscaleController.tunnelUrl.observe(this) { url ->
-            // Tailscale is lowest priority — only adopt its URL when no higher-priority tunnel has one
-            val zrokUrl = daemonsViewModel.zrokController.tunnelUrl.value
-            val cloudflaredUrl = daemonsViewModel.cloudflaredController.tunnelUrl.value
-            if (zrokUrl.isNullOrEmpty() && cloudflaredUrl.isNullOrEmpty() && !url.isNullOrEmpty()) {
-                mainViewModel.setTunnelUrl(url)
-            }
-            updateUrlDisplay()
-        }
-        
-        // Observe daemon states for tunnel status (cloudflared, zrok or tailscale)
+        // Observe daemon states for tunnel status (cloudflared or zrok)
         daemonsViewModel.daemonStates.observe(this) { states ->
             val cloudflaredState = states[DaemonType.CLOUDFLARED_TUNNEL]
             val zrokState = states[DaemonType.ZROK_TUNNEL]
-            val tailscaleState = states[DaemonType.TAILSCALE_TUNNEL]
             // Show online if either tunnel is running
             val tunnelStatus = when {
                 zrokState?.status == DaemonStatus.RUNNING -> DaemonStatus.RUNNING
                 cloudflaredState?.status == DaemonStatus.RUNNING -> DaemonStatus.RUNNING
-                tailscaleState?.status == DaemonStatus.RUNNING -> DaemonStatus.RUNNING
                 zrokState?.status == DaemonStatus.STARTING -> DaemonStatus.STARTING
                 cloudflaredState?.status == DaemonStatus.STARTING -> DaemonStatus.STARTING
-                tailscaleState?.status == DaemonStatus.STARTING -> DaemonStatus.STARTING
                 else -> DaemonStatus.STOPPED
             }
             updateStatusIndicator(tunnelStatus)
@@ -754,8 +807,7 @@ class MainActivity : AppCompatActivity() {
         // Check both tunnel URLs - prefer zrok if available
         val zrokUrl = daemonsViewModel.zrokController.tunnelUrl.value
         val cloudflaredUrl = daemonsViewModel.cloudflaredController.tunnelUrl.value
-        val tailscaleUrl = daemonsViewModel.tailscaleController.tunnelUrl.value
-        val tunnelUrl = zrokUrl?.takeIf { it.isNotEmpty() } ?: cloudflaredUrl?.takeIf { it.isNotEmpty() } ?: tailscaleUrl
+        val tunnelUrl = zrokUrl?.takeIf { it.isNotEmpty() } ?: cloudflaredUrl
         
         // Both modes now use tunnel URL
         if (tunnelUrl.isNullOrEmpty()) {
@@ -763,14 +815,11 @@ class MainActivity : AppCompatActivity() {
             val states = daemonsViewModel.daemonStates.value
             val cfState = states?.get(DaemonType.CLOUDFLARED_TUNNEL)
             val zrokState = states?.get(DaemonType.ZROK_TUNNEL)
-            val tailscaleState = states?.get(DaemonType.TAILSCALE_TUNNEL)
             val message = when {
                 zrokState?.status == DaemonStatus.STARTING -> "Starting Zrok tunnel..."
                 cfState?.status == DaemonStatus.STARTING -> "Starting Cloudflared tunnel..."
-                tailscaleState?.status == DaemonStatus.STARTING -> "Starting Tailscale tunnel..."
                 zrokState?.status == DaemonStatus.RUNNING -> "Waiting for tunnel URL..."
                 cfState?.status == DaemonStatus.RUNNING -> "Waiting for tunnel URL..."
-                tailscaleState?.status == DaemonStatus.RUNNING -> "Waiting for tailscale URL..."
                 else -> "No tunnel running"
             }
             tvCurrentUrl.text = message
@@ -794,14 +843,6 @@ class MainActivity : AppCompatActivity() {
     
     override fun onSupportNavigateUp(): Boolean {
         return navController.navigateUp(appBarConfiguration) || super.onSupportNavigateUp()
-    }
-    
-    override fun onBackPressed() {
-        if (drawerLayout.isDrawerOpen(GravityCompat.START)) {
-            drawerLayout.closeDrawer(GravityCompat.START)
-        } else {
-            super.onBackPressed()
-        }
     }
     
     // ==================== Camera Reconfiguration ====================

@@ -18,11 +18,12 @@ import java.util.Locale;
  * Endpoints (all require JWT auth, handled by HttpServer before routing):
  *
  *   POST /api/fcm/register
- *     Body: { "token": "<fcm_device_token>" }
+ *     Body: { "token": "<fcm_device_token>", "installationId": "<firebase_installation_id>" }
+ *     (installationId is optional)
  *     Response: { "status": "ok", "updated": true }
  *
  *   GET /api/fcm/status
- *     Response: { "registered": true, "updatedAt": "2026-05-10 14:32:00" }
+ *     Response: { "registered": true, "updatedAt": "2026-05-10 14:32:00", "installationId": "..." }
  *              or { "registered": false }
  *
  *   GET /api/fcm/prefs
@@ -102,7 +103,8 @@ public class FcmApiHandler {
             return;
         }
 
-        FcmTokenStore.getInstance().upsertToken(token);
+        String installationId = req.optString("installationId", "").trim();
+        FcmTokenStore.getInstance().upsertRegistration(token, installationId.isEmpty() ? null : installationId);
 
         JSONObject response = new JSONObject();
         response.put("status", "ok");
@@ -121,6 +123,10 @@ public class FcmApiHandler {
                     : "unknown";
             response.put("registered", true);
             response.put("updatedAt", formattedDate);
+            String installationId = store.getInstallationId();
+            if (installationId != null) {
+                response.put("installationId", installationId);
+            }
         } else {
             response.put("registered", false);
         }
