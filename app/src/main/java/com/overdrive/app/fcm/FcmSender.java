@@ -81,12 +81,16 @@ public class FcmSender {
     // -------------------------------------------------------------------------
 
     public static void notifyMotion(String aiDetection, float confidence) {
+        notifyMotion(aiDetection, confidence, null);
+    }
+
+    public static void notifyMotion(String aiDetection, float confidence, String videoFilename) {
         String title = "Motion Detected";
         String body = (aiDetection != null && !aiDetection.isEmpty())
                 ? aiDetection.substring(0, 1).toUpperCase() + aiDetection.substring(1)
                   + " detected (" + Math.round(confidence * 100) + "%)"
                 : "Motion detected";
-        sendAsync(title, body, "motion");
+        sendAsync(title, body, "motion", videoFilename != null ? videoFilename : null);
     }
 
     public static void notifyVideoReady(String filePath, String aiDetection, int durationSeconds) {
@@ -148,7 +152,14 @@ public class FcmSender {
                 data.put("event_type", eventType);
                 if (filePath != null && !filePath.isEmpty()) {
                     data.put("action", "play_video");
-                    data.put("file_name", new java.io.File(filePath).getName());
+                    String fileName = new java.io.File(filePath).getName();
+                    data.put("file_name", fileName);
+                    // Provide the full streaming URL so the companion app can play
+                    // the clip directly via the remote access tunnel.
+                    String tunnelUrl = readTunnelUrl();
+                    if (tunnelUrl != null) {
+                        data.put("video_url", tunnelUrl + "/events.html?play=" + fileName);
+                    }
                 } else {
                     data.put("action", "open_events");
                 }
@@ -306,6 +317,20 @@ public class FcmSender {
             return null;
         } finally {
             if (is != null) try { is.close(); } catch (Exception ignored) {}
+        }
+    }
+
+    private static String readTunnelUrl() {
+        try {
+            java.io.File f = new java.io.File(com.overdrive.app.daemon.proxy.Enc.TELEGRAM_URL_FILE);
+            if (!f.exists()) return null;
+            java.util.Scanner scanner = new java.util.Scanner(f);
+            String url = scanner.hasNextLine() ? scanner.nextLine().trim() : null;
+            scanner.close();
+            return (url != null && !url.isEmpty()) ? url : null;
+        } catch (Exception e) {
+            Log.w(TAG, "Could not read tunnel URL: " + e.getMessage());
+            return null;
         }
     }
 

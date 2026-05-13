@@ -120,7 +120,10 @@ public class SurveillanceEngineGpu {
     // This makes AI-based background subtraction effective against ALL lighting artifacts,
     // not just the deterrent flash.
     private volatile long lastAiConfirmationTimeMs = 0;  // When YOLO last found a real object
-    
+    // Best AI classification from the last confirmed detection — used to label FCM notifications
+    private volatile String lastConfirmedAiLabel = "motion";
+    private volatile float lastConfirmedAiConfidence = 1.0f;
+
     // Detection mode
     private boolean useObjectDetection = false;
     private YoloDetector yoloDetector = null;
@@ -752,6 +755,9 @@ public class SurveillanceEngineGpu {
             if (firstMotionTime == 0) {
                 firstMotionTime = now;
                 peakThreatDuringSequence = maxThreat;
+                // Reset AI label so a stale label from the previous event is never used
+                lastConfirmedAiLabel = "motion";
+                lastConfirmedAiConfidence = 1.0f;
                 int bestQ = pipelineV2.getHighestThreatQuadrant();
                 MotionPipelineV2.QuadrantResult bestR = bestQ >= 0 ? results[bestQ] : null;
                 float estDist = bestQ >= 0 && bestR != null ? estimateDistanceFromCentroid(bestQ, bestR.centroidY) : -1;
@@ -973,7 +979,11 @@ public class SurveillanceEngineGpu {
                         
                         try {
                             String videoFilename = currentEventFile != null ? currentEventFile.getName() : null;
-                            TelegramNotifier.notifyMotion("motion", 1.0f, videoFilename);
+                            // Use YOLO-confirmed label if available (confirmed during this sequence),
+                            // otherwise fall back to generic "motion".
+                            String aiLabel = (lastAiConfirmationTimeMs >= firstMotionTime) ? lastConfirmedAiLabel : "motion";
+                            float aiConf = (lastAiConfirmationTimeMs >= firstMotionTime) ? lastConfirmedAiConfidence : 1.0f;
+                            TelegramNotifier.notifyMotion(aiLabel, aiConf, videoFilename);
                         } catch (Exception e) {
                             logger.warn("Failed to send motion notification: " + e.getMessage());
                         }
@@ -1114,7 +1124,9 @@ public class SurveillanceEngineGpu {
                         startRecording();
                         try {
                             String videoFilename = currentEventFile != null ? currentEventFile.getName() : null;
-                            TelegramNotifier.notifyMotion("motion", 1.0f, videoFilename);
+                            String aiLabel = (lastAiConfirmationTimeMs >= firstMotionTime) ? lastConfirmedAiLabel : "motion";
+                            float aiConf = (lastAiConfirmationTimeMs >= firstMotionTime) ? lastConfirmedAiConfidence : 1.0f;
+                            TelegramNotifier.notifyMotion(aiLabel, aiConf, videoFilename);
                         } catch (Exception e) {
                             logger.warn("Failed to send motion notification: " + e.getMessage());
                         }
@@ -1711,6 +1723,34 @@ public class SurveillanceEngineGpu {
                         // This is used by the deterrent flash guard to allow recording
                         // even during the suppression window if YOLO sees a real threat.
                         lastAiConfirmationTimeMs = System.currentTimeMillis();
+                        
+                        // Capture the highest-confidence detection label for FCM notifications.
+                        // Priority: person > car > bike > other. Within each class, take highest conf.
+                        com.overdrive.app.ai.Detection bestForLabel = null;
+                        for (com.overdrive.app.ai.Detection d : motionFiltered) {
+                            if (bestForLabel == null) {
+                                bestForLabel = d;
+                            } else {
+                                // Prefer person (class 0) over everything else
+                                int bc = bestForLabel.getClassId();
+                                int dc = d.getClassId();
+                                boolean dIsPerson = (dc == 0);
+                                boolean bIsPerson = (bc == 0);
+                                if (dIsPerson && !bIsPerson) {
+                                    bestForLabel = d;
+                                } else if (dIsPerson == bIsPerson && d.getConfidence() > bestForLabel.getConfidence()) {
+                                    bestForLabel = d;
+                                }
+                            }
+                        }
+                        if (bestForLabel != null) {
+                            int cls = bestForLabel.getClassId();
+                            if (cls == 0) lastConfirmedAiLabel = "person";
+                            else if (cls == 2 || cls == 5 || cls == 7) lastConfirmedAiLabel = "car";
+                            else if (cls == 1 || cls == 3) lastConfirmedAiLabel = "bike";
+                            else lastConfirmedAiLabel = "motion";
+                            lastConfirmedAiConfidence = bestForLabel.getConfidence();
+                        }
                         
                         long timeSinceMotion = System.currentTimeMillis() - lastMotionTime;
                         if (timeSinceMotion < 2000) {

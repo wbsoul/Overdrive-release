@@ -114,26 +114,43 @@ public class FcmPreferences {
 
     private void save(JSONObject json) {
         synchronized (this) {
-            try {
-                File tmpFile = new File(PREFS_FILE.getParentFile(), PREFS_FILE.getName() + ".tmp");
-                try (FileWriter writer = new FileWriter(tmpFile)) {
-                    writer.write(json.toString(2));
-                }
+            String content = null;
+            try { content = json.toString(2); } catch (Exception e) { Log.e(TAG, "JSON error", e); return; }
+
+            // Try atomic rename first (preferred — avoids partial reads by other processes).
+            // This requires write permission on the directory, which only the daemon (shell UID)
+            // has. If creating the tmp file fails (e.g. app process lacks directory write
+            // permission), fall through to direct overwrite of the existing world-writable file.
+            boolean saved = false;
+            File tmpFile = new File(PREFS_FILE.getParentFile(), PREFS_FILE.getName() + ".tmp");
+            try (FileWriter writer = new FileWriter(tmpFile)) {
+                writer.write(content);
                 tmpFile.setReadable(true, false);
                 tmpFile.setWritable(true, false);
-                if (!tmpFile.renameTo(PREFS_FILE)) {
-                    try (FileWriter writer = new FileWriter(PREFS_FILE)) {
-                        writer.write(json.toString(2));
-                    }
-                    PREFS_FILE.setReadable(true, false);
-                    PREFS_FILE.setWritable(true, false);
+                if (tmpFile.renameTo(PREFS_FILE)) {
+                    saved = true;
+                } else {
                     tmpFile.delete();
                 }
-                cache = json;
-                lastModified.set(PREFS_FILE.lastModified());
-            } catch (Exception e) {
-                Log.e(TAG, "Failed to save prefs file", e);
+            } catch (Exception ignored) {
+                // Cannot create tmp file (no directory write permission from app process) —
+                // fall through to direct write below.
             }
+
+            // Fallback: write directly to the existing file (world-writable, set by daemon).
+            if (!saved) {
+                try (FileWriter writer = new FileWriter(PREFS_FILE)) {
+                    writer.write(content);
+                } catch (Exception e) {
+                    Log.e(TAG, "Failed to save prefs file", e);
+                    return;
+                }
+                PREFS_FILE.setReadable(true, false);
+                PREFS_FILE.setWritable(true, false);
+            }
+
+            cache = json;
+            lastModified.set(PREFS_FILE.lastModified());
         }
     }
 }

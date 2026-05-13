@@ -40,7 +40,7 @@
         <item
             android:id="@+id/fcmSettingsFragment"
             android:icon="@drawable/ic_fcm"
-            android:title="Companion Push (FCM)" />
+            android:title="Companion Notifications" />
 
         <item
             android:id="@+id/abrpSettingsFragment"

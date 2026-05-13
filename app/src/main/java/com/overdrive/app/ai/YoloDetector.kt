@@ -29,13 +29,14 @@ data class Detection(
 )
 
 /**
- * YOLO11n TensorFlow Lite Detector with GPU Acceleration
+ * YOLO26n TensorFlow Lite Detector with GPU Acceleration
  * 
  * SOTA Implementation:
  * - GPU delegate for <20% CPU usage
  * - Native C++ ImageProcessor (10x faster, SIMD-accelerated)
  * - Bilinear resizing for better accuracy on distant objects
  * - Pre-allocated buffers (zero GC churn)
+ * - Auto-detects output format: one-to-many [1,84,8400] or NMS-free [1,300,6]
  * - Cache-friendly output parsing
  * - Height filter before NMS
  * - Ghost filter (max 50 detections)
@@ -54,8 +55,15 @@ class YoloDetector(private val context: Context) {
     private var outputBuffer: ByteBuffer? = null
     
     // Model configuration
-    private val modelPath = "models/yolo11n.tflite"
+    private val modelPath = "models/yolo26n_float32.tflite"
     private val inputSize = 640
+
+    // Output format (auto-detected after allocateTensors)
+    // one-to-many [1, 84, 8400]: standard YOLO, requires NMS post-processing
+    // NMS-free     [1, 300,  6]: YOLO26 one-to-one head, no NMS needed
+    private var isNmsFreeOutput = false
+    private var totalOutputFloats = 84 * 8400
+    private var nmsFreeMaxDetections = 300
     
     // SOTA: Native C++ image processor (10x faster than manual loops)
     // Uses SIMD-accelerated bilinear resize + normalize
@@ -175,9 +183,22 @@ class YoloDetector(private val context: Context) {
             // SOTA: Initialize input buffer as UINT8 for zero-copy loading
             // ImageProcessor will convert UINT8 -> FLOAT32 automatically
             inputImageBuffer = TensorImage(DataType.UINT8)
-            
+
+            // Auto-detect output format from model tensor shape
+            val outShape = interpreter!!.getOutputTensor(0).shape()
+            // [1, 84, 8400] → one-to-many (standard YOLO NMS path)
+            // [1, 300, 6]   → one-to-one NMS-free (YOLO26 default export)
+            isNmsFreeOutput = outShape.size == 3 && outShape[2] == 6
+            if (isNmsFreeOutput) {
+                nmsFreeMaxDetections = outShape[1]
+                totalOutputFloats = outShape[1] * 6
+            } else {
+                totalOutputFloats = 84 * 8400
+            }
+            logger.info("Output format: ${if (isNmsFreeOutput) "NMS-free [1,${outShape.getOrElse(1){300}},6]" else "one-to-many [1,84,8400]"} ($totalOutputFloats floats)")
+
             // SOTA: Pre-allocate output buffer (zero GC churn)
-            outputBuffer = ByteBuffer.allocateDirect(1 * 84 * 8400 * 4)
+            outputBuffer = ByteBuffer.allocateDirect(totalOutputFloats * 4)
                 .order(ByteOrder.nativeOrder())
             
             logger.info("Model loaded successfully (GPU=$isGpuEnabled, accelerated=$loaded)")
@@ -239,13 +260,20 @@ class YoloDetector(private val context: Context) {
         
         // Parse output
         outputBuffer!!.rewind()
-        val output = FloatArray(84 * 8400)
+        val output = FloatArray(totalOutputFloats)
         outputBuffer!!.asFloatBuffer().get(output)
-        
-        return parseOutput(
-            output, width, height, confThreshold,
-            detectPerson, detectCar, detectAnimal, detectBike, minRelativeHeight
-        )
+
+        return if (isNmsFreeOutput) {
+            parseNmsFreeOutput(
+                output, nmsFreeMaxDetections, width, height, confThreshold,
+                detectPerson, detectCar, detectAnimal, detectBike, minRelativeHeight
+            )
+        } else {
+            parseOutput(
+                output, width, height, confThreshold,
+                detectPerson, detectCar, detectAnimal, detectBike, minRelativeHeight
+            )
+        }
     }
     
     /**
@@ -416,7 +444,97 @@ class YoloDetector(private val context: Context) {
         
         return final
     }
-    
+
+    /**
+     * Parse YOLO26 one-to-one NMS-free output.
+     *
+     * Expected tensor shape: [1, numDetections, 6]
+     * Each row: [x1_norm, y1_norm, x2_norm, y2_norm, confidence, class_id]
+     * Coordinates are normalized [0, 1] relative to the model input size.
+     * No NMS needed — the model already applied one-to-one matching.
+     */
+    private fun parseNmsFreeOutput(
+        output: FloatArray,
+        numDetections: Int,
+        imgWidth: Int,
+        imgHeight: Int,
+        confThreshold: Float,
+        detectPerson: Boolean,
+        detectCar: Boolean,
+        detectAnimal: Boolean,
+        detectBike: Boolean,
+        minRelativeHeight: Float
+    ): List<Detection> {
+
+        val detections = mutableListOf<Detection>()
+        val scaleX = imgWidth.toFloat()
+        val scaleY = imgHeight.toFloat()
+
+        for (i in 0 until numDetections) {
+            val base = i * 6
+            val confidence = output[base + 4]
+            if (confidence < confThreshold) continue
+
+            val classId = output[base + 5].toInt()
+
+            val wantedClass = when {
+                detectPerson && classId == CLASS_PERSON -> true
+                detectCar && classId in listOf(CLASS_CAR, CLASS_BUS, CLASS_TRUCK,
+                    CLASS_TRAIN, CLASS_BOAT, CLASS_AIRPLANE, CLASS_MOTORCYCLE) -> true
+                detectBike && classId == CLASS_BICYCLE -> true
+                detectAnimal && classId in CLASS_BIRD..CLASS_GIRAFFE -> true
+                else -> false
+            }
+            if (!wantedClass) continue
+
+            // Normalized corner coords [0, 1]
+            val x1 = output[base + 0]
+            val y1 = output[base + 1]
+            val x2 = output[base + 2]
+            val y2 = output[base + 3]
+
+            val objX = (x1 * scaleX).toInt().coerceIn(0, imgWidth)
+            val objY = (y1 * scaleY).toInt().coerceIn(0, imgHeight)
+            val objW = ((x2 - x1) * scaleX).toInt().coerceIn(0, imgWidth - objX)
+            val objH = ((y2 - y1) * scaleY).toInt().coerceIn(0, imgHeight - objY)
+
+            val quadrantHeight = imgHeight / 2
+            val quadrantWidth  = imgWidth  / 2
+            val relH = objH.toFloat() / quadrantHeight
+            val relW = objW.toFloat() / quadrantWidth
+
+            val passesDistanceFilter = when (classId) {
+                CLASS_PERSON -> relH >= minRelativeHeight
+                CLASS_CAR, CLASS_BUS, CLASS_TRUCK, CLASS_TRAIN ->
+                    relW >= (minRelativeHeight * 1.33f)
+                CLASS_BICYCLE, CLASS_MOTORCYCLE ->
+                    relH >= (minRelativeHeight * 0.7f)
+                else -> relH >= minRelativeHeight
+            }
+            if (!passesDistanceFilter) continue
+
+            detections.add(Detection(classId, confidence, objX, objY, objW, objH))
+        }
+
+        // NMS-free output: no NMS needed — model already resolved overlaps
+        val final = if (detections.size > 50) {
+            logger.warn("Ghost filter: ${detections.size} > 50, clearing")
+            emptyList()
+        } else {
+            detections
+        }
+
+        val personCount = final.count { it.classId == CLASS_PERSON }
+        val carCount    = final.count { it.classId in listOf(CLASS_CAR, CLASS_BUS, CLASS_TRUCK, CLASS_TRAIN, CLASS_BOAT, CLASS_AIRPLANE, CLASS_MOTORCYCLE) }
+        val bikeCount   = final.count { it.classId == CLASS_BICYCLE }
+        val animalCount = final.count { it.classId in CLASS_BIRD..CLASS_GIRAFFE }
+        val bestKeptConf  = final.maxOfOrNull { it.confidence } ?: 0f
+        val bestKeptClass = final.maxByOrNull { it.confidence }?.classId ?: -1
+        logger.info("Detected ${final.size} objects (NMS-free): person=$personCount car=$carCount bike=$bikeCount animal=$animalCount (max_conf=${"%.3f".format(bestKeptConf)} class=$bestKeptClass)")
+
+        return final
+    }
+
     /**
      * Non-Maximum Suppression
      */

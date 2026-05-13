@@ -121,7 +121,7 @@ public class TelegramNotifier {
     public static void notifyMotion(String aiDetection, float confidence, String videoFilename) {
         // Publish to in-app event bus
         TelegramEventBus.getInstance().publish(
-                new MotionEvent(aiDetection, confidence)
+                new MotionEvent(aiDetection, confidence, videoFilename)
         );
         
         // Send via IPC to daemon

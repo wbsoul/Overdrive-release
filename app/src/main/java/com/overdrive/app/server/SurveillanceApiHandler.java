@@ -795,6 +795,15 @@ public class SurveillanceApiHandler {
                 } catch (Exception e) {
                     CameraDaemon.log("Failed to apply config: " + e.getMessage());
                 }
+                // Persist to unified config so settings survive restart
+                try {
+                    com.overdrive.app.surveillance.SurveillanceConfigManager configManager =
+                        new com.overdrive.app.surveillance.SurveillanceConfigManager();
+                    configManager.saveConfig(sentryConfig);
+                    CameraDaemon.log("Surveillance config persisted via web portal");
+                } catch (Exception e) {
+                    CameraDaemon.log("Failed to persist surveillance config: " + e.getMessage());
+                }
             }
             
             // Save recording settings (bitrate, codec) to unified config

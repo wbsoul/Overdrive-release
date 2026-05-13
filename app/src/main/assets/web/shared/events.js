@@ -36,6 +36,13 @@ BYD.events = {
         await this.loadDatesWithRecordings();
         await this.loadStorageStats();
         await this.loadRecordings();
+
+        // Auto-open a specific recording when linked from an FCM notification
+        // e.g. events.html?play=event_20260513_143022.mp4
+        const playParam = urlParams.get('play');
+        if (playParam) {
+            this.playVideo(playParam);
+        }
         
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') {
