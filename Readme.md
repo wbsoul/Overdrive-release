@@ -239,4 +239,10 @@ If you want to use Zrok tunneling for remote access, you need your own Zrok invi
 
 ## License
 
-Open source under MIT License. Your data stays on your device.
+This project is a fork of [yash-srivastava/Overdrive-release](https://github.com/yash-srivastava/Overdrive-release), which is licensed under the [MIT License](LICENSE).
+
+The modifications and additions in this fork — including YOLO26n AI integration, FCM push notifications, companion app features, and all associated code — are licensed under the **GNU Affero General Public License v3.0 (AGPL-3.0)**, in compliance with the [Ultralytics YOLO](https://github.com/ultralytics/ultralytics) dependency which is itself AGPL-3.0 licensed.
+
+Under AGPL-3.0, any modifications you distribute or deploy as a network service must also be made available under AGPL-3.0. See the [AGPL-3.0 license text](https://www.gnu.org/licenses/agpl-3.0.html) for full terms.
+
+Your data stays on your device.
