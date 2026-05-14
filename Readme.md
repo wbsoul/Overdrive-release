@@ -233,6 +233,9 @@ If you want to use Zrok tunneling for remote access, you need your own Zrok invi
 - **Slider Change Detection Fix** — Confidence threshold sliders now correctly trigger the unsaved-changes indicator via `oninput` (fixes Save button not activating in older Android WebViews)
 - **Mobile UI Polish** — Fixed burger menu not appearing on the notifications page; centred page titles in the desktop header
 - **System Daemon Rename** — Renamed `CameraDaemon` → `SystemDaemon` throughout the codebase and all UI labels
+- **OTA Channel Migration** — Auto-detects when the embedded update channel no longer exists (e.g. upgrading from a pre-POC `alpha` build) and falls back to the active `poc` channel, ensuring update prompts are never silently missed
+- **Portal Mobile Overflow Fix** — Resolved horizontal scroll/crop on narrow mobile screens; all panels now fit within the viewport width without horizontal scrolling
+- **Confidence Slider UI** — Restyled the per-class confidence sliders in the portal to match the existing Loitering Time slider (teal thumb, monospace value label, consistent sizing)
 
 ## License
 
