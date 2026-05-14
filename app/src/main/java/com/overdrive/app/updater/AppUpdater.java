@@ -38,6 +38,8 @@ public class AppUpdater {
 
     private static final String TAG = "AppUpdater";
     private static final String GITHUB_REPO = "wbsoul/Overdrive-release";
+    // Fallback channel for users upgrading from the upstream alpha channel
+    private static final String FALLBACK_CHANNEL = "poc";
     private static final String PREFS_NAME = "app_updater";
     private static final String PREF_LAST_UPDATE_TIME = "last_update_timestamp";
     private static final String PREF_JUST_UPDATED = "just_updated";
@@ -155,8 +157,9 @@ public class AppUpdater {
 
         executor.execute(() -> {
             try {
+                String activeChannel = channel;
                 String apiUrl = "https://api.github.com/repos/" + GITHUB_REPO +
-                        "/releases/tags/" + channel;
+                        "/releases/tags/" + activeChannel;
 
                 OkHttpClient client = buildClient(15, 15);
 
@@ -165,13 +168,32 @@ public class AppUpdater {
                         .header("Accept", "application/vnd.github.v3+json")
                         .build();
 
-                try (Response response = client.newCall(request).execute()) {
-                    if (!response.isSuccessful()) {
-                        postError(callback, "GitHub API error: HTTP " + response.code());
+                Response response = client.newCall(request).execute();
+
+                // Channel migration: if the embedded channel no longer exists on this fork
+                // (e.g. user has an old "alpha" build but this repo only has "poc"),
+                // fall back to the known active channel so the update is still surfaced.
+                if (!response.isSuccessful() && response.code() == 404
+                        && !activeChannel.equals(FALLBACK_CHANNEL)) {
+                    response.close();
+                    Log.i(TAG, "Channel '" + activeChannel + "' not found (404), trying fallback: " + FALLBACK_CHANNEL);
+                    activeChannel = FALLBACK_CHANNEL;
+                    apiUrl = "https://api.github.com/repos/" + GITHUB_REPO +
+                            "/releases/tags/" + FALLBACK_CHANNEL;
+                    request = new Request.Builder()
+                            .url(apiUrl)
+                            .header("Accept", "application/vnd.github.v3+json")
+                            .build();
+                    response = client.newCall(request).execute();
+                }
+
+                try (Response r = response) {
+                    if (!r.isSuccessful()) {
+                        postError(callback, "GitHub API error: HTTP " + r.code());
                         return;
                     }
 
-                    String body = response.body().string();
+                    String body = r.body().string();
                     JSONObject release = new JSONObject(body);
 
                     releaseNotes = release.optString("body", "Bug fixes and improvements.");
@@ -262,7 +284,7 @@ public class AppUpdater {
                         Log.w(TAG, "Could not check install time: " + e.getMessage());
                     }
 
-                    Log.i(TAG, "Channel: " + channel + ", Current: " + currentVersion +
+                    Log.i(TAG, "Channel: " + activeChannel + ", Current: " + currentVersion +
                             ", Remote: " + remoteVersion + ", APK updated: " + updatedAt +
                             ", Last installed: " + lastInstalledTimestamp);
 
