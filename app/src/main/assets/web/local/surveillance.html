@@ -555,17 +555,17 @@
                             <div style="display:flex;flex-direction:column;gap:8px;">
                                 <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text-secondary);">
                                     <span style="width:52px;">Person</span>
-                                    <input type="range" id="minConfidencePerson" min="0" max="100" value="25" style="flex:1;" oninput="document.getElementById('confPersonVal').textContent=this.value" onchange="SurvSettings.updateDetection()">
+                                    <input type="range" id="minConfidencePerson" min="0" max="100" value="25" style="flex:1;" oninput="document.getElementById('confPersonVal').textContent=this.value; SurvSettings.updateDetection()">
                                     <span id="confPersonVal" style="width:32px;text-align:right;">25</span>%
                                 </label>
                                 <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text-secondary);">
                                     <span style="width:52px;">Vehicle</span>
-                                    <input type="range" id="minConfidenceCar" min="0" max="100" value="25" style="flex:1;" oninput="document.getElementById('confCarVal').textContent=this.value" onchange="SurvSettings.updateDetection()">
+                                    <input type="range" id="minConfidenceCar" min="0" max="100" value="25" style="flex:1;" oninput="document.getElementById('confCarVal').textContent=this.value; SurvSettings.updateDetection()">
                                     <span id="confCarVal" style="width:32px;text-align:right;">25</span>%
                                 </label>
                                 <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text-secondary);">
                                     <span style="width:52px;">Bike</span>
-                                    <input type="range" id="minConfidenceBike" min="0" max="100" value="25" style="flex:1;" oninput="document.getElementById('confBikeVal').textContent=this.value" onchange="SurvSettings.updateDetection()">
+                                    <input type="range" id="minConfidenceBike" min="0" max="100" value="25" style="flex:1;" oninput="document.getElementById('confBikeVal').textContent=this.value; SurvSettings.updateDetection()">
                                     <span id="confBikeVal" style="width:32px;text-align:right;">25</span>%
                                 </label>
                             </div>
