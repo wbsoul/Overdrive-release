@@ -32,12 +32,12 @@ import okhttp3.Response;
  * - Update detection: compare asset updated_at vs last installed timestamp
  * - Debug tag is ignored in release builds
  *
- * API: https://api.github.com/repos/yash-srivastava/Overdrive-release/releases/tags/{channel}
+ * API: https://api.github.com/repos/wbsoul/Overdrive-release/releases/tags/poc
  */
 public class AppUpdater {
 
     private static final String TAG = "AppUpdater";
-    private static final String GITHUB_REPO = "yash-srivastava/Overdrive-release";
+    private static final String GITHUB_REPO = "wbsoul/Overdrive-release";
     private static final String PREFS_NAME = "app_updater";
     private static final String PREF_LAST_UPDATE_TIME = "last_update_timestamp";
     private static final String PREF_JUST_UPDATED = "just_updated";

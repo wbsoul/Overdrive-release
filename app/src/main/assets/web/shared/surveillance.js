@@ -17,6 +17,10 @@ BYD.surveillance = {
         detectPerson: true,
         detectCar: true,
         detectBike: true,
+        notifyIfNoObjectDetected: true,
+        minConfidencePerson: 0.25,
+        minConfidenceCar: 0.25,
+        minConfidenceBike: 0.25,
         preRecordSeconds: 5,
         postRecordSeconds: 10,
         recordingBitrate: 'MEDIUM',
@@ -638,6 +642,8 @@ BYD.surveillance = {
         const editableKeys = [
             'enabled', 'distance', 'sensitivity', 'flashImmunity',
             'detectPerson', 'detectCar', 'detectBike',
+            'notifyIfNoObjectDetected',
+            'minConfidencePerson', 'minConfidenceCar', 'minConfidenceBike',
             'preRecordSeconds', 'postRecordSeconds',
             'recordingBitrate', 'recordingCodec',
             'surveillanceLimitMb', 'surveillanceStorageType',
@@ -754,6 +760,14 @@ BYD.surveillance = {
         this.config.detectPerson = document.getElementById('detectPerson').checked;
         this.config.detectCar = document.getElementById('detectCar').checked;
         this.config.detectBike = document.getElementById('detectBike').checked;
+        const nno = document.getElementById('notifyIfNoObjectDetected');
+        if (nno) this.config.notifyIfNoObjectDetected = nno.checked;
+        const scp = document.getElementById('minConfidencePerson');
+        if (scp) this.config.minConfidencePerson = parseInt(scp.value) / 100;
+        const scc = document.getElementById('minConfidenceCar');
+        if (scc) this.config.minConfidenceCar = parseInt(scc.value) / 100;
+        const scb = document.getElementById('minConfidenceBike');
+        if (scb) this.config.minConfidenceBike = parseInt(scb.value) / 100;
         this.updateCheckboxStyles();
         this.markChanged();
     },
@@ -1309,6 +1323,16 @@ BYD.surveillance = {
         const db = document.getElementById('detectBike');
         if (db) db.checked = this.config.detectBike;
         this.updateCheckboxStyles();
+        // Notify if no object detected
+        const nno = document.getElementById('notifyIfNoObjectDetected');
+        if (nno) nno.checked = (this.config.notifyIfNoObjectDetected !== false);
+        // Per-class confidence sliders
+        const scp = document.getElementById('minConfidencePerson');
+        if (scp) { scp.value = Math.round((this.config.minConfidencePerson || 0.25) * 100); document.getElementById('confPersonVal') && (document.getElementById('confPersonVal').textContent = scp.value); }
+        const scc = document.getElementById('minConfidenceCar');
+        if (scc) { scc.value = Math.round((this.config.minConfidenceCar || 0.25) * 100); document.getElementById('confCarVal') && (document.getElementById('confCarVal').textContent = scc.value); }
+        const scb = document.getElementById('minConfidenceBike');
+        if (scb) { scb.value = Math.round((this.config.minConfidenceBike || 0.25) * 100); document.getElementById('confBikeVal') && (document.getElementById('confBikeVal').textContent = scb.value); }
     },
 
     async applySettings() {

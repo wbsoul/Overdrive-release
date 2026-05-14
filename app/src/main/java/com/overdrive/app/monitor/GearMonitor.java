@@ -2,7 +2,7 @@ package com.overdrive.app.monitor;
 
 import android.content.Context;
 
-import com.overdrive.app.daemon.CameraDaemon;
+import com.overdrive.app.daemon.SystemDaemon;
 import com.overdrive.app.logging.DaemonLogger;
 
 import java.lang.reflect.Method;
@@ -129,7 +129,7 @@ public class GearMonitor {
                             logger.info("Gear changed: " + gearToString(currentGear) + " -> " + gearToString(gear));
                             currentGear = gear;
                             lastUpdateTime = System.currentTimeMillis();
-                            CameraDaemon.onGearChanged(gear);
+                            SystemDaemon.onGearChanged(gear);
                         }
                     } catch (InterruptedException e) {
                         break;
@@ -146,7 +146,7 @@ public class GearMonitor {
             logger.info("Gear monitor started successfully");
             
             // Notify initial state
-            CameraDaemon.onGearChanged(currentGear);
+            SystemDaemon.onGearChanged(currentGear);
             
         } catch (Exception e) {
             logger.error("Failed to start gear monitor: " + e.getMessage());

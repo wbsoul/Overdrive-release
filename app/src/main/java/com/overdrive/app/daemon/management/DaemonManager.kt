@@ -61,7 +61,7 @@ class DaemonManager private constructor(
         val config = configManager.getDaemonConfig(type)
         
         when (type) {
-            DaemonType.CAMERA -> startCameraDaemon(config, callback)
+            DaemonType.CAMERA -> startSystemDaemon(config, callback)
             DaemonType.SENTRY -> startSentryDaemon(callback)
             DaemonType.BYD_EVENT -> startBydEventDaemon(callback)
         }
@@ -74,7 +74,7 @@ class DaemonManager private constructor(
         logManager.info(TAG, "Stopping daemon: $type")
         
         when (type) {
-            DaemonType.CAMERA -> stopCameraDaemon(callback)
+            DaemonType.CAMERA -> stopSystemDaemon(callback)
             DaemonType.SENTRY -> stopSentryDaemon(callback)
             DaemonType.BYD_EVENT -> stopBydEventDaemon(callback)
         }
@@ -186,7 +186,7 @@ class DaemonManager private constructor(
     
     // Private daemon-specific implementations
     
-    private fun startCameraDaemon(config: DaemonConfig, callback: DaemonCallback?) {
+    private fun startSystemDaemon(config: DaemonConfig, callback: DaemonCallback?) {
         val outputDir = context.getExternalFilesDir(null)?.absolutePath ?: context.filesDir.absolutePath
         val nativeLibDir = context.applicationInfo.nativeLibraryDir
         
@@ -208,7 +208,7 @@ class DaemonManager private constructor(
         })
     }
     
-    private fun stopCameraDaemon(callback: DaemonCallback?) {
+    private fun stopSystemDaemon(callback: DaemonCallback?) {
         adbLauncher.killDaemon(object : AdbDaemonLauncher.LaunchCallback {
             override fun onLog(message: String) {
                 logManager.debug(TAG, "[CAMERA] $message")

@@ -81,7 +81,7 @@ public class TripTelemetryRecorder {
 
     /**
      * Update the TelemetryDataCollector reference after late initialization.
-     * Called by CameraDaemon once TelemetryDataCollector is ready (after GPU init delay).
+     * Called by SystemDaemon once TelemetryDataCollector is ready (after GPU init delay).
      */
     public void setTelemetryDataCollector(TelemetryDataCollector collector) {
         this.telemetryDataCollector = collector;

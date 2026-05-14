@@ -1,6 +1,6 @@
 package com.overdrive.app.monitor;
 
-import com.overdrive.app.daemon.CameraDaemon;
+import com.overdrive.app.daemon.SystemDaemon;
 
 /**
  * ACC Monitor - State holder for ACC status with direct hardware query.
@@ -10,7 +10,7 @@ import com.overdrive.app.daemon.CameraDaemon;
  * 2. Falls back to sys.accanim.status polling
  * 3. Sends IPC commands to SurveillanceEngine on port 19877
  * 
- * On CameraDaemon restart (e.g., after EGL crash), the ACC state is read
+ * On SystemDaemon restart (e.g., after EGL crash), the ACC state is read
  * directly from BYDAutoBodyworkDevice.getPowerLevel() so the daemon can
  * re-enter sentry mode without depending on AccSentryDaemon IPC.
  */
@@ -40,7 +40,7 @@ public class AccMonitor {
     public static void setAccState(boolean isAccOn) {
         accOn = isAccOn;
         inSentryMode = !isAccOn;
-        CameraDaemon.log("ACC state updated via IPC: accOn=" + isAccOn + ", sentryMode=" + inSentryMode);
+        SystemDaemon.log("ACC state updated via IPC: accOn=" + isAccOn + ", sentryMode=" + inSentryMode);
     }
 
     /**
@@ -57,7 +57,7 @@ public class AccMonitor {
             Object device = getInstance.invoke(null, context);
 
             if (device == null) {
-                CameraDaemon.log("AccMonitor: BYDAutoBodyworkDevice.getInstance returned null");
+                SystemDaemon.log("AccMonitor: BYDAutoBodyworkDevice.getInstance returned null");
                 return false;
             }
 
@@ -76,21 +76,21 @@ public class AccMonitor {
                 case 3: levelStr = "OK"; break;
                 default: levelStr = "UNKNOWN(" + level + ")"; break;
             }
-            CameraDaemon.log("AccMonitor: hardware probe powerLevel=" + levelStr +
+            SystemDaemon.log("AccMonitor: hardware probe powerLevel=" + levelStr +
                 " → accOn=" + isAccOn + ", sentryMode=" + inSentryMode);
 
             return !isAccOn;  // true if ACC is OFF
         } catch (Exception e) {
-            CameraDaemon.log("AccMonitor: hardware probe failed: " + e.getMessage());
+            SystemDaemon.log("AccMonitor: hardware probe failed: " + e.getMessage());
             return false;  // assume ACC ON (safe default — don't enter sentry on error)
         }
     }
 
     /**
-     * No-op start method for backward compatibility with CameraDaemon.
+     * No-op start method for backward compatibility with SystemDaemon.
      */
     public void start() {
-        CameraDaemon.log("AccMonitor: passive mode (ACC detection by AccSentryDaemon)");
+        SystemDaemon.log("AccMonitor: passive mode (ACC detection by AccSentryDaemon)");
     }
 
     /**

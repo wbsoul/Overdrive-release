@@ -1,6 +1,6 @@
 package com.overdrive.app.monitor;
 
-import com.overdrive.app.daemon.CameraDaemon;
+import com.overdrive.app.daemon.SystemDaemon;
 
 import org.json.JSONObject;
 
@@ -87,14 +87,14 @@ public class BatteryMonitor {
                         }
                         
                         lastBatteryUpdate = System.currentTimeMillis();
-                        CameraDaemon.log("Battery updated: " + lastBatteryVoltage + "V (" + lastBatteryLevel + "), SOC: " + lastBatterySoc + "%");
+                        SystemDaemon.log("Battery updated: " + lastBatteryVoltage + "V (" + lastBatteryLevel + "), SOC: " + lastBatterySoc + "%");
                     }
                 }
             }
             
             socket.close();
         } catch (Exception e) {
-            CameraDaemon.log("Battery info fetch: " + e.getMessage());
+            SystemDaemon.log("Battery info fetch: " + e.getMessage());
         }
     }
 

@@ -95,31 +95,31 @@ class DaemonLauncher(
     }
     
     /**
-     * Launch the CameraDaemon via ADB shell.
+     * Launch the SystemDaemon via ADB shell.
      * The daemon will run independently of this app as shell user (UID 2000).
     */
-    fun launchCameraDaemon(outputDir: String, nativeLibDir: String, callback: LaunchCallback) {
+    fun launchSystemDaemon(outputDir: String, nativeLibDir: String, callback: LaunchCallback) {
         // Prevent concurrent launch attempts
         if (cameraLaunchInProgress) {
-            logManager.info(TAG, "CameraDaemon launch already in progress, skipping")
+            logManager.info(TAG, "SystemDaemon launch already in progress, skipping")
             callback.onLog("Launch already in progress")
             callback.onLaunched()
             return
         }
         cameraLaunchInProgress = true
         
-        logManager.info(TAG, "Launching CameraDaemon...")
-        callback.onLog("Launching CameraDaemon...")
+        logManager.info(TAG, "Launching SystemDaemon...")
+        callback.onLog("Launching SystemDaemon...")
         
         // Check if already running using isDaemonRunning (handles zombies properly)
         isDaemonRunning(CAMERA_DAEMON_PROCESS) { isRunning ->
             if (isRunning) {
-                logManager.info(TAG, "CameraDaemon already running")
-                callback.onLog("CameraDaemon already running")
+                logManager.info(TAG, "SystemDaemon already running")
+                callback.onLog("SystemDaemon already running")
                 callback.onLaunched()
                 cameraLaunchInProgress = false
             } else {
-                launchCameraDaemonInternal(outputDir, nativeLibDir, object : LaunchCallback {
+                launchSystemDaemonInternal(outputDir, nativeLibDir, object : LaunchCallback {
                     override fun onLog(message: String) = callback.onLog(message)
                     override fun onLaunched() {
                         cameraLaunchInProgress = false
@@ -134,19 +134,19 @@ class DaemonLauncher(
         }
     }
     
-    private fun launchCameraDaemonInternal(outputDir: String, nativeLibDir: String, callback: LaunchCallback) {
+    private fun launchSystemDaemonInternal(outputDir: String, nativeLibDir: String, callback: LaunchCallback) {
         val apkPath = context.applicationInfo.sourceDir
         val proxyArgs = getProxyArgs()
         val scriptPath = "/data/local/tmp/start_cam_daemon.sh"
         
-        logManager.debug(TAG, "Deploying CameraDaemon watchdog script...")
+        logManager.debug(TAG, "Deploying SystemDaemon watchdog script...")
         callback.onLog("Deploying watchdog script...")
         
         // Step 1: Kill old processes and clean up.
         // CRITICAL: Kill the watchdog script FIRST so it can't respawn the daemon
         // between the two pkill calls. Reversing the order here causes the old
         // watchdog to relaunch the daemon, and the fresh watchdog we're about
-        // to start loses the singleton lock race ("Another CameraDaemon instance
+        // to start loses the singleton lock race ("Another SystemDaemon instance
         // is already running. Exiting.").
         // Also clear the disable sentinel — user is explicitly starting the daemon.
         val cleanupCmd = buildString {
@@ -182,7 +182,7 @@ class DaemonLauncher(
     ) {
         val scriptLines = listOf(
             "#!/system/bin/sh",
-            "# CameraDaemon Watchdog Script",
+            "# SystemDaemon Watchdog Script",
             "LOG_FILE=\"$CAMERA_DAEMON_LOG\"",
             "LOCK_FILE=\"/data/local/tmp/camera_daemon.lock\"",
             "SENTINEL=\"/data/local/tmp/camera_daemon.disabled\"",
@@ -195,13 +195,13 @@ class DaemonLauncher(
             "    echo \"[\$(date)] Daemon disabled by user (sentinel file exists). Exiting watchdog.\" >> \"\$LOG_FILE\"",
             "    exit 0",
             "  fi",
-            "  echo \"[\$(date)] Starting CameraDaemon...\" >> \"\$LOG_FILE\"",
+            "  echo \"[\$(date)] Starting SystemDaemon...\" >> \"\$LOG_FILE\"",
             "",
             "  CLASSPATH=/system/framework/bmmcamera.jar:$apkPath app_process " +
                 "-Djava.library.path=$nativeLibDir:/system/lib64:/vendor/lib64:/product/lib64:/odm/lib64 " +
                 "${proxyArgs}/system/bin " +
                 "--nice-name=$CAMERA_DAEMON_PROCESS " +
-                "com.overdrive.app.daemon.CameraDaemon " +
+                "com.overdrive.app.daemon.SystemDaemon " +
                 "$outputDir $nativeLibDir >> \"\$LOG_FILE\" 2>&1",
             "",
             "  EXIT_CODE=\$?",
@@ -258,7 +258,7 @@ class DaemonLauncher(
             command = writeCmd,
             callback = object : AdbShellExecutor.ShellCallback {
                 override fun onSuccess(output: String) {
-                    logManager.info(TAG, "CameraDaemon script written successfully")
+                    logManager.info(TAG, "SystemDaemon script written successfully")
                     callback.onLog("Script ready, launching...")
                     launchCamDaemonScript(scriptPath, callback)
                 }
@@ -279,11 +279,11 @@ class DaemonLauncher(
             command = launchCmd,
             callback = object : AdbShellExecutor.ShellCallback {
                 override fun onSuccess(output: String) {
-                    logManager.info(TAG, "CameraDaemon watchdog launched")
+                    logManager.info(TAG, "SystemDaemon watchdog launched")
                     callback.onLog("Watchdog active. Verifying daemon...")
                     
                     android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                        verifyDaemonRunning(CAMERA_DAEMON_PROCESS, "CameraDaemon", CAMERA_DAEMON_LOG, callback)
+                        verifyDaemonRunning(CAMERA_DAEMON_PROCESS, "SystemDaemon", CAMERA_DAEMON_LOG, callback)
                     }, 1500)
                 }
                 
@@ -297,7 +297,7 @@ class DaemonLauncher(
     }
     
     /**
-     * Fallback: Launch CameraDaemon directly without watchdog (original simple method).
+     * Fallback: Launch SystemDaemon directly without watchdog (original simple method).
      */
     private fun launchCamDaemonFallback(callback: LaunchCallback) {
         val apkPath = context.applicationInfo.sourceDir
@@ -312,7 +312,7 @@ class DaemonLauncher(
             append(proxyArgs)
             append("/system/bin ")
             append("--nice-name=$CAMERA_DAEMON_PROCESS ")
-            append("com.overdrive.app.daemon.CameraDaemon ")
+            append("com.overdrive.app.daemon.SystemDaemon ")
             append("$outputDir ")
             append("$nativeLibDir")
         }
@@ -323,16 +323,16 @@ class DaemonLauncher(
             command = cmd,
             callback = object : AdbShellExecutor.ShellCallback {
                 override fun onSuccess(output: String) {
-                    logManager.info(TAG, "CameraDaemon launched (fallback, no watchdog)")
+                    logManager.info(TAG, "SystemDaemon launched (fallback, no watchdog)")
                     callback.onLog("Launch command sent, verifying...")
                     
                     android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                        verifyDaemonRunning(CAMERA_DAEMON_PROCESS, "CameraDaemon", CAMERA_DAEMON_LOG, callback)
+                        verifyDaemonRunning(CAMERA_DAEMON_PROCESS, "SystemDaemon", CAMERA_DAEMON_LOG, callback)
                     }, 1500)
                 }
                 
                 override fun onError(error: String) {
-                    logManager.error(TAG, "Failed to launch CameraDaemon: $error")
+                    logManager.error(TAG, "Failed to launch SystemDaemon: $error")
                     callback.onError("Launch failed: $error")
                 }
             }
@@ -1705,7 +1705,7 @@ class DaemonLauncher(
         for (pattern in patterns) {
             if (cmd.contains(pattern)) {
                 return when {
-                    pattern.contains("byd_cam_daemon") -> "Camera Daemon"
+                    pattern.contains("byd_cam_daemon") -> "System Daemon"
                     pattern.contains("sentry_daemon") -> "Sentry Daemon"
                     pattern.contains("sing-box") -> "Sing-box"
                     pattern.contains("cloudflared") -> "Cloudflared"

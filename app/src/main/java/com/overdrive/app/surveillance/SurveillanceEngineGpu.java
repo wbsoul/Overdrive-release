@@ -131,6 +131,10 @@ public class SurveillanceEngineGpu {
     // Object detection filters (SOTA: Quadrant-relative height filter in YoloDetector)
     private float minObjectSize = 0.12f;  // 12% of QUADRANT height (~8m for person in 2x2 grid)
     private float aiConfidence = 0.25f;  // 25% confidence (lowered for debugging)
+    private volatile boolean notifyIfNoObjectDetected = true;  // Record even when YOLO finds nothing
+    private volatile float minConfidencePerson = 0.25f;  // Per-class thresholds
+    private volatile float minConfidenceCar    = 0.25f;
+    private volatile float minConfidenceBike   = 0.25f;
     private int[] classFilter = null;  // null = all classes, or {0, 2, 3} for person, car, bike
     
     // AI throttling - only run YOLO every 500ms to save CPU
@@ -896,6 +900,12 @@ public class SurveillanceEngineGpu {
                     // our own lights?" so we err on the side of suppressing false positives.
                     // Real threats that arrive during the 5s window will still be caught
                     // because the first recording's post-record (10s) covers the gap.
+                    // If user disabled notifications when no object detected, always suppress
+                    // until YOLO confirms an object (timeout fallback disabled).
+                    if (!notifyIfNoObjectDetected && aiAvailable && !aiRecentlyConfirmed) {
+                        shouldSuppress = true;
+                    }
+                    
                     if (!aiAvailable && deterrentActive && !recording) {
                         shouldSuppress = true;
                         if (frameCount % 50 == 0) {
@@ -1634,6 +1644,17 @@ public class SurveillanceEngineGpu {
                         }
                     }
                     
+                    // Per-class confidence filtering (applied on top of the global confThreshold)
+                    motionFiltered.removeIf(det -> {
+                        int cls = det.getClassId();
+                        float thr;
+                        if (cls == 0) thr = minConfidencePerson;
+                        else if (cls == 2 || cls == 5 || cls == 7) thr = minConfidenceCar;
+                        else if (cls == 1 || cls == 3) thr = minConfidenceBike;
+                        else thr = aiConfidence;
+                        return det.getConfidence() < thr;
+                    });
+                    
                     int relevantCount = motionFiltered.size();
                     motionFilteredCount = relevantCount;
                     
@@ -2067,7 +2088,9 @@ public class SurveillanceEngineGpu {
         // Apply object detection filters from saved config.
         // This rebuilds the classFilter array so YOLO respects detectPerson/detectCar/detectBike.
         setObjectFilters(config.getMinObjectSize(), config.getAiConfidence(),
-                config.isDetectPerson(), config.isDetectCar(), config.isDetectBike());
+                config.isDetectPerson(), config.isDetectCar(), config.isDetectBike(),
+                config.isNotifyIfNoObjectDetected(),
+                config.getMinConfidencePerson(), config.getMinConfidenceCar(), config.getMinConfidenceBike());
         
         // Apply V2 pipeline settings from loaded config.
         // Order matters: environment preset sets all defaults, then sensitivity and
@@ -2200,8 +2223,20 @@ public class SurveillanceEngineGpu {
      */
     public void setObjectFilters(float minSize, float confidence, 
                                  boolean detectPerson, boolean detectCar, boolean detectBike) {
+        setObjectFilters(minSize, confidence, detectPerson, detectCar, detectBike,
+                notifyIfNoObjectDetected, minConfidencePerson, minConfidenceCar, minConfidenceBike);
+    }
+
+    public void setObjectFilters(float minSize, float confidence,
+                                 boolean detectPerson, boolean detectCar, boolean detectBike,
+                                 boolean notifyIfNoObject,
+                                 float confPerson, float confCar, float confBike) {
         this.minObjectSize = minSize;
         this.aiConfidence = confidence;
+        this.notifyIfNoObjectDetected = notifyIfNoObject;
+        this.minConfidencePerson = Math.max(0f, Math.min(1f, confPerson));
+        this.minConfidenceCar    = Math.max(0f, Math.min(1f, confCar));
+        this.minConfidenceBike   = Math.max(0f, Math.min(1f, confBike));
         
         // Build class filter for YOLO
         java.util.ArrayList<Integer> classes = new java.util.ArrayList<>();
@@ -2350,7 +2385,7 @@ public class SurveillanceEngineGpu {
     public void enable() {
         // RACE CONDITION FIX (defense in depth): Final guard at the engine level.
         // If ACC is ON, refuse to enable. This catches any edge case where the
-        // higher-level guards in CameraDaemon/AccSentryDaemon were bypassed.
+        // higher-level guards in SystemDaemon/AccSentryDaemon were bypassed.
         if (com.overdrive.app.monitor.AccMonitor.isAccOn()) {
             logger.warn(">>> Surveillance enable REJECTED at engine level — ACC is ON");
             return;

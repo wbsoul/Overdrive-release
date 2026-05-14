@@ -6,7 +6,7 @@ import java.io.File
 /**
  * Loads native libraries for daemon processes.
  * 
- * Extracted from CameraDaemon for reuse across daemons.
+ * Extracted from SystemDaemon for reuse across daemons.
  */
 object NativeLibraryLoader {
     

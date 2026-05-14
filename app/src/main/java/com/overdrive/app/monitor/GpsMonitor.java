@@ -1,6 +1,6 @@
 package com.overdrive.app.monitor;
 
-import com.overdrive.app.daemon.CameraDaemon;
+import com.overdrive.app.daemon.SystemDaemon;
 import org.json.JSONObject;
 
 import java.io.File;
@@ -61,7 +61,7 @@ public class GpsMonitor {
     public void init(android.content.Context ctx) {
         // Load cached GPS on init - try multiple locations
         loadFromCache();
-        CameraDaemon.log(TAG + ": Initialized (IPC mode)" + 
+        SystemDaemon.log(TAG + ": Initialized (IPC mode)" + 
             (hasLocation() ? " - cached: " + latitude + ", " + longitude + " (loadedFromCache=" + loadedFromCache + ")" : " - no cached location"));
     }
 
@@ -72,9 +72,9 @@ public class GpsMonitor {
         // Start the sidecar service
         try {
             Runtime.getRuntime().exec(START_CMD);
-            CameraDaemon.log(TAG + ": Sidecar service started");
+            SystemDaemon.log(TAG + ": Sidecar service started");
         } catch (Exception e) {
-            CameraDaemon.log(TAG + ": Failed to start sidecar: " + e.getMessage());
+            SystemDaemon.log(TAG + ": Failed to start sidecar: " + e.getMessage());
         }
     }
 
@@ -114,7 +114,7 @@ public class GpsMonitor {
         long now = System.currentTimeMillis();
         if (hasLocation() && now - lastLoggedAt >= LOG_INTERVAL_MS) {
             lastLoggedAt = now;
-            CameraDaemon.log(TAG + ": GPS: " + lat + ", " + lng + " (speed=" + speed + "m/s)");
+            SystemDaemon.log(TAG + ": GPS: " + lat + ", " + lng + " (speed=" + speed + "m/s)");
         }
     }
 
@@ -141,7 +141,7 @@ public class GpsMonitor {
             // LocationSidecarService handles its own cache in app data directory
             
         } catch (Exception e) {
-            CameraDaemon.log(TAG + ": Failed to save GPS cache: " + e.getMessage());
+            SystemDaemon.log(TAG + ": Failed to save GPS cache: " + e.getMessage());
         }
     }
     
@@ -174,19 +174,19 @@ public class GpsMonitor {
     private void loadFromCache() {
         // Try primary cache first (daemon tmp)
         if (loadFromCacheFile(CACHE_FILE)) {
-            CameraDaemon.log(TAG + ": Loaded GPS from primary cache: " + latitude + ", " + longitude);
+            SystemDaemon.log(TAG + ": Loaded GPS from primary cache: " + latitude + ", " + longitude);
             loadedFromCache = true;
             return;
         }
         
         // Try secondary cache (app data directory - written by LocationSidecarService)
         if (loadFromCacheFile(CACHE_FILE_APP)) {
-            CameraDaemon.log(TAG + ": Loaded GPS from app cache: " + latitude + ", " + longitude);
+            SystemDaemon.log(TAG + ": Loaded GPS from app cache: " + latitude + ", " + longitude);
             loadedFromCache = true;
             return;
         }
         
-        CameraDaemon.log(TAG + ": No GPS cache found at " + CACHE_FILE + " or " + CACHE_FILE_APP);
+        SystemDaemon.log(TAG + ": No GPS cache found at " + CACHE_FILE + " or " + CACHE_FILE_APP);
     }
     
     private boolean loadFromCacheFile(String path) {
@@ -229,7 +229,7 @@ public class GpsMonitor {
 
     public void stop() {
         isRunning = false;
-        CameraDaemon.log(TAG + ": Stopped");
+        SystemDaemon.log(TAG + ": Stopped");
     }
 
     // ==================== PUBLIC GETTERS ====================

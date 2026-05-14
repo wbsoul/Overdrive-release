@@ -52,6 +52,10 @@ class SurveillanceConfigManager(
         private const val KEY_DETECT_PERSON = "detectPerson"
         private const val KEY_DETECT_CAR = "detectCar"
         private const val KEY_DETECT_BIKE = "detectBike"
+        private const val KEY_NOTIFY_IF_NO_OBJECT = "notifyIfNoObjectDetected"
+        private const val KEY_MIN_CONF_PERSON = "minConfidencePerson"
+        private const val KEY_MIN_CONF_CAR    = "minConfidenceCar"
+        private const val KEY_MIN_CONF_BIKE   = "minConfidenceBike"
         private const val KEY_PRE_RECORD_SECONDS = "preRecordSeconds"
         private const val KEY_POST_RECORD_SECONDS = "postRecordSeconds"
         
@@ -166,6 +170,10 @@ class SurveillanceConfigManager(
             put(KEY_DETECT_PERSON, config.isDetectPerson)
             put(KEY_DETECT_CAR, config.isDetectCar)
             put(KEY_DETECT_BIKE, config.isDetectBike)
+            put(KEY_NOTIFY_IF_NO_OBJECT, config.isNotifyIfNoObjectDetected)
+            put(KEY_MIN_CONF_PERSON, config.minConfidencePerson.toDouble())
+            put(KEY_MIN_CONF_CAR,    config.minConfidenceCar.toDouble())
+            put(KEY_MIN_CONF_BIKE,   config.minConfidenceBike.toDouble())
             put(KEY_PRE_RECORD_SECONDS, config.preRecordSeconds)
             put(KEY_POST_RECORD_SECONDS, config.postRecordSeconds)
             
@@ -237,6 +245,10 @@ class SurveillanceConfigManager(
         if (json.has(KEY_DETECT_PERSON)) config.setDetectPerson(json.optBoolean(KEY_DETECT_PERSON, true))
         if (json.has(KEY_DETECT_CAR)) config.setDetectCar(json.optBoolean(KEY_DETECT_CAR, true))
         if (json.has(KEY_DETECT_BIKE)) config.setDetectBike(json.optBoolean(KEY_DETECT_BIKE, false))
+        if (json.has(KEY_NOTIFY_IF_NO_OBJECT)) config.setNotifyIfNoObjectDetected(json.optBoolean(KEY_NOTIFY_IF_NO_OBJECT, true))
+        if (json.has(KEY_MIN_CONF_PERSON)) config.setMinConfidencePerson(json.optDouble(KEY_MIN_CONF_PERSON, 0.25).toFloat())
+        if (json.has(KEY_MIN_CONF_CAR))    config.setMinConfidenceCar(json.optDouble(KEY_MIN_CONF_CAR, 0.25).toFloat())
+        if (json.has(KEY_MIN_CONF_BIKE))   config.setMinConfidenceBike(json.optDouble(KEY_MIN_CONF_BIKE, 0.25).toFloat())
         if (json.has(KEY_PRE_RECORD_SECONDS)) config.setPreRecordSeconds(json.optInt(KEY_PRE_RECORD_SECONDS, 5))
         if (json.has(KEY_POST_RECORD_SECONDS)) config.setPostRecordSeconds(json.optInt(KEY_POST_RECORD_SECONDS, 10))
         

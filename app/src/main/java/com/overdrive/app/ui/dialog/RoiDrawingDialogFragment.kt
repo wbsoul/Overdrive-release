@@ -331,7 +331,7 @@ class RoiDrawingDialogFragment : DialogFragment() {
             textAlign = Paint.Align.CENTER
             isAntiAlias = true
         }
-        canvas.drawText("(Start Camera Daemon for live preview)", width / 2f, height / 2f + 120, hintPaint)
+        canvas.drawText("(Start System Daemon for live preview)", width / 2f, height / 2f + 120, hintPaint)
         
         ivPreview.setImageBitmap(bitmap)
         ivPreview.scaleType = ImageView.ScaleType.FIT_CENTER

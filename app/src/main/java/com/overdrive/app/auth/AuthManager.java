@@ -2,7 +2,7 @@ package com.overdrive.app.auth;
 
 import android.util.Base64;
 
-import com.overdrive.app.daemon.CameraDaemon;
+import com.overdrive.app.daemon.SystemDaemon;
 
 import org.json.JSONObject;
 
@@ -483,6 +483,6 @@ public class AuthManager {
     }
     
     private static void log(String message) {
-        CameraDaemon.log("AUTH: " + message);
+        SystemDaemon.log("AUTH: " + message);
     }
 }

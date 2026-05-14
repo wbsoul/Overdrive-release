@@ -38,7 +38,7 @@ public final class DaemonLogConfig {
 
     // ==================== DAEMON PROCESSES ====================
     
-    /** CameraDaemon - main camera pipeline, GPU init, surveillance orchestration */
+    /** SystemDaemon - main camera pipeline, GPU init, surveillance orchestration */
     public static final boolean CAMERA_DAEMON = false;
     
     /** AccSentryDaemon - ACC state detection, sentry mode transitions */
@@ -102,7 +102,7 @@ public final class DaemonLogConfig {
     /** ModeTransition - mode transition manager */
     public static final boolean MODE_TRANSITION = false;
     
-    /** SafeLocationManager - geofence/safe zone logic (logs via CameraDaemon.log) */
+    /** SafeLocationManager - geofence/safe zone logic (logs via SystemDaemon.log) */
     public static final boolean SAFE_LOCATION = false;
     
     /** SurveillanceConfigManager - surveillance config persistence */
@@ -195,7 +195,7 @@ public final class DaemonLogConfig {
 
     // ==================== SERVERS ====================
     
-    /** HttpServer - HTTP API server (logs via CameraDaemon.log) */
+    /** HttpServer - HTTP API server (logs via SystemDaemon.log) */
     public static final boolean HTTP_SERVER = false;
     
     /** SurveillanceIPC - surveillance IPC server */
@@ -236,7 +236,7 @@ public final class DaemonLogConfig {
     
     static {
         if (!ENABLE_ALL) {
-            if (CAMERA_DAEMON)              ENABLED_TAGS.add("CameraDaemon");
+            if (CAMERA_DAEMON)              ENABLED_TAGS.add("SystemDaemon");
             if (ACC_SENTRY_DAEMON)          ENABLED_TAGS.add("AccSentryDaemon");
             if (SENTRY_DAEMON)              ENABLED_TAGS.add("SentryDaemon");
             if (TELEGRAM_BOT_DAEMON)        ENABLED_TAGS.add("TelegramBotDaemon");

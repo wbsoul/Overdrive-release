@@ -112,7 +112,7 @@ public class VehicleDataMonitor {
             if (!c.isInitialized() && context != null) {
                 // BydDataCollector not yet initialized — init it now
                 // This handles the race where VehicleDataMonitor is queried
-                // before CameraDaemon finishes BydDataCollector.init()
+                // before SystemDaemon finishes BydDataCollector.init()
                 logger.info("BydDataCollector not initialized — initializing from VehicleDataMonitor");
                 c.init(context);
             }

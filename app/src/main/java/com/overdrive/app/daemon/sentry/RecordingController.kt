@@ -96,7 +96,7 @@ class RecordingController {
     /**
      * Check if camera daemon is running.
      */
-    fun isCameraDaemonRunning(): Boolean {
+    fun isSystemDaemonRunning(): Boolean {
         val result = execShell("ps -ef | grep byd_cam_daemon | grep -v grep")
         return result.isNotEmpty()
     }

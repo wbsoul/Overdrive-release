@@ -23,7 +23,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * 
  * Runs as a standalone process via app_process:
  *   adb shell "CLASSPATH=/data/app/.../base.apk app_process / \
- *       com.overdrive.app.daemon.CameraDaemon [outputDir] [nativeLibDir]"
+ *       com.overdrive.app.daemon.SystemDaemon [outputDir] [nativeLibDir]"
  * 
  * Components:
  * - TcpCommandServer: JSON commands on port 19876
@@ -32,9 +32,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * - VirtualView: Per-camera view cropping and encoding
  * - AccMonitor: Sentry mode when ACC goes off
  */
-public class CameraDaemon {
+public class SystemDaemon {
 
-    private static final String TAG = "CameraDaemon";
+    private static final String TAG = "SystemDaemon";
     
     // ==================== ENCRYPTED CONSTANTS (SOTA Java obfuscation) ====================
     // Decrypted at runtime via Safe.s() - AES-256-CBC with stack-based key reconstruction
@@ -95,7 +95,7 @@ public class CameraDaemon {
     private static volatile boolean pendingAccOff = false;
     
     // ==================== DOOR LOCK GATE (surveillance arm/disarm) ====================
-    // Lock detection runs in CameraDaemon's process where cloud MQTT is active.
+    // Lock detection runs in SystemDaemon's process where cloud MQTT is active.
     // Surveillance is only armed after doors are locked (reduces false triggers from owner exiting).
     private static volatile boolean doorLockListenerArmed = false;
 
@@ -252,7 +252,7 @@ public class CameraDaemon {
         
         // CRITICAL: Acquire singleton lock FIRST - exit if another instance is running
         if (!acquireSingletonLock()) {
-            log("ERROR: Another CameraDaemon instance is already running. Exiting.");
+            log("ERROR: Another SystemDaemon instance is already running. Exiting.");
             System.exit(1);
             return;
         }
@@ -526,7 +526,7 @@ public class CameraDaemon {
             }
 
             // AUTO-START: If gear is already in a driving position (not P), start trip
-            // recording immediately. This handles the case where CameraDaemon restarts
+            // recording immediately. This handles the case where SystemDaemon restarts
             // mid-drive (e.g., EGL crash watchdog, manual restart) or starts after the
             // driver has already shifted out of P.
             if (tripAnalyticsManager.isEnabled()) {
@@ -557,7 +557,7 @@ public class CameraDaemon {
         loadStreamMode();
 
         // RECOVERY: Probe ACC state directly from hardware.
-        // If CameraDaemon was restarted (e.g., EGL crash watchdog) while ACC was off,
+        // If SystemDaemon was restarted (e.g., EGL crash watchdog) while ACC was off,
         // AccSentryDaemon won't re-send the ACC OFF command. Reading the hardware
         // directly has zero dependency on AccSentryDaemon.
         try {
@@ -1402,7 +1402,7 @@ public class CameraDaemon {
     
     /**
      * Ensure camera is running for surveillance (called by SurveillanceEngine when it becomes active).
-     * This avoids circular calls between CameraDaemon and SurveillanceEngine.
+     * This avoids circular calls between SystemDaemon and SurveillanceEngine.
      */
     public static void ensureCameraForSurveillance() {
         log("ensureCameraForSurveillance called");
@@ -2820,7 +2820,7 @@ public class CameraDaemon {
             .withStdoutLog(true)  // Enable stdout for daemon processes
             .withFileLog(true)
             .withConsoleLog(true));
-        log("=== CameraDaemon Log Started ===");
+        log("=== SystemDaemon Log Started ===");
     }
     
     public static void log(String message) {

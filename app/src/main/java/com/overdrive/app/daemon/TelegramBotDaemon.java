@@ -56,7 +56,7 @@ public class TelegramBotDaemon {
     
     private static final int IPC_PORT = 19878;  // Telegram IPC (19877 is used by Surveillance)
     
-    // Singleton lock (same pattern as CameraDaemon / AccSentryDaemon)
+    // Singleton lock (same pattern as SystemDaemon / AccSentryDaemon)
     private static final String LOCK_FILE = "/data/local/tmp/telegram_bot_daemon.lock";
     private static java.io.RandomAccessFile lockFileHandle;
     private static java.nio.channels.FileLock fileLock;
@@ -162,7 +162,7 @@ public class TelegramBotDaemon {
     
     /**
      * Acquire a file lock to ensure only one daemon instance runs at a time.
-     * Same pattern as CameraDaemon / AccSentryDaemon.
+     * Same pattern as SystemDaemon / AccSentryDaemon.
      */
     private static boolean acquireSingletonLock() {
         try {

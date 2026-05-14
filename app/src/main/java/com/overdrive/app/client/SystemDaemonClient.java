@@ -18,12 +18,12 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 /**
- * TCP client for communicating with CameraDaemon.
+ * TCP client for communicating with SystemDaemon.
  * Uses TCP on localhost to avoid SELinux cross-context restrictions.
  */
-public class CameraDaemonClient {
+public class SystemDaemonClient {
     
-    private static final String TAG = "CameraDaemonClient";
+    private static final String TAG = "SystemDaemonClient";
     private static final String HOST = "127.0.0.1";
     private static final int PORT = 19876;
     private static final int CONNECT_TIMEOUT_MS = 5000;
@@ -41,7 +41,7 @@ public class CameraDaemonClient {
     }
 
     /**
-     * Connect to CameraDaemon via TCP socket on localhost.
+     * Connect to SystemDaemon via TCP socket on localhost.
      */
     public boolean connect() {
         try {
@@ -53,7 +53,7 @@ public class CameraDaemonClient {
             writer = new PrintWriter(new OutputStreamWriter(socket.getOutputStream()), true);
             
             connected = true;
-            Log.d(TAG, "Connected to CameraDaemon on " + HOST + ":" + PORT);
+            Log.d(TAG, "Connected to SystemDaemon on " + HOST + ":" + PORT);
             return true;
         } catch (Exception e) {
             Log.e(TAG, "Failed to connect to " + HOST + ":" + PORT + ": " + e.getMessage());
@@ -77,7 +77,7 @@ public class CameraDaemonClient {
         socket = null;
         reader = null;
         writer = null;
-        Log.d(TAG, "Disconnected from CameraDaemon (daemon still running)");
+        Log.d(TAG, "Disconnected from SystemDaemon (daemon still running)");
     }
 
     /**
@@ -94,7 +94,7 @@ public class CameraDaemonClient {
         if (!isConnected()) {
             // Try to reconnect
             if (!connect()) {
-                throw new Exception("Not connected to CameraDaemon");
+                throw new Exception("Not connected to SystemDaemon");
             }
         }
         
@@ -106,7 +106,7 @@ public class CameraDaemonClient {
                 String response = reader.readLine();
                 if (response == null) {
                     connected = false;
-                    throw new Exception("CameraDaemon disconnected");
+                    throw new Exception("SystemDaemon disconnected");
                 }
                 return new JSONObject(response);
             } catch (Exception e) {

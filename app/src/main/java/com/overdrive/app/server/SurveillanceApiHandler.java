@@ -1,6 +1,6 @@
 package com.overdrive.app.server;
 
-import com.overdrive.app.daemon.CameraDaemon;
+import com.overdrive.app.daemon.SystemDaemon;
 import com.overdrive.app.surveillance.GpuSurveillancePipeline;
 import com.overdrive.app.surveillance.SurveillanceConfig;
 import com.overdrive.app.surveillance.SurveillanceConfigManager;
@@ -72,7 +72,7 @@ public class SurveillanceApiHandler {
     }
     
     private static void sendConfig(OutputStream out) throws Exception {
-        GpuSurveillancePipeline gpuPipeline = CameraDaemon.getGpuPipeline();
+        GpuSurveillancePipeline gpuPipeline = SystemDaemon.getGpuPipeline();
         
         JSONObject response = new JSONObject();
         response.put("success", true);
@@ -94,7 +94,7 @@ public class SurveillanceApiHandler {
                     sentryConfig = configManager.loadConfig();
                 }
             } catch (Exception e) {
-                CameraDaemon.log("Failed to load config: " + e.getMessage());
+                SystemDaemon.log("Failed to load config: " + e.getMessage());
             }
         }
         
@@ -113,6 +113,10 @@ public class SurveillanceApiHandler {
             config.put("detectPerson", sentryConfig.isDetectPerson());
             config.put("detectCar", sentryConfig.isDetectCar());
             config.put("detectBike", sentryConfig.isDetectBike());
+            config.put("notifyIfNoObjectDetected", sentryConfig.isNotifyIfNoObjectDetected());
+            config.put("minConfidencePerson", sentryConfig.getMinConfidencePerson());
+            config.put("minConfidenceCar", sentryConfig.getMinConfidenceCar());
+            config.put("minConfidenceBike", sentryConfig.getMinConfidenceBike());
             
             // SOTA: Distance preset and block settings
             config.put("distancePreset", sentryConfig.getDistancePreset().name());
@@ -164,6 +168,10 @@ public class SurveillanceApiHandler {
             config.put("detectPerson", true);
             config.put("detectCar", true);
             config.put("detectBike", true);
+            config.put("notifyIfNoObjectDetected", true);
+            config.put("minConfidencePerson", 0.25f);
+            config.put("minConfidenceCar", 0.25f);
+            config.put("minConfidenceBike", 0.25f);
             config.put("preRecordSeconds", 5);
             config.put("postRecordSeconds", 10);
         }
@@ -188,7 +196,7 @@ public class SurveillanceApiHandler {
         // SOTA: Safe Location status
         com.overdrive.app.surveillance.SafeLocationManager safeMgr =
             com.overdrive.app.surveillance.SafeLocationManager.getInstance();
-        config.put("safeZoneSuppressed", CameraDaemon.isSafeZoneSuppressed());
+        config.put("safeZoneSuppressed", SystemDaemon.isSafeZoneSuppressed());
         config.put("inSafeZone", safeMgr.isInSafeZone());
         config.put("safeZoneName", safeMgr.getCurrentZoneName());
         
@@ -302,14 +310,14 @@ public class SurveillanceApiHandler {
         JSONObject response = new JSONObject();
         response.put("success", true);
         
-        java.util.Map<String, Object> statusMap = CameraDaemon.getSurveillanceStatus();
+        java.util.Map<String, Object> statusMap = SystemDaemon.getSurveillanceStatus();
         JSONObject statusJson = new JSONObject(statusMap);
         response.put("status", statusJson);
         HttpResponse.sendJson(out, response.toString());
     }
     
     private static void handleConfigPost(OutputStream out, String body) throws Exception {
-        GpuSurveillancePipeline gpuPipeline = CameraDaemon.getGpuPipeline();
+        GpuSurveillancePipeline gpuPipeline = SystemDaemon.getGpuPipeline();
         
         try {
             JSONObject configJson = new JSONObject(body);
@@ -380,7 +388,7 @@ public class SurveillanceApiHandler {
                         }
                         
                         configChanged = true;
-                        CameraDaemon.log(String.format("Motion sensitivity set to level %d (%d%%, alarm=%d blocks)",
+                        SystemDaemon.log(String.format("Motion sensitivity set to level %d (%d%%, alarm=%d blocks)",
                             sensitivityLevel, sensitivityPercent, requiredBlocks));
                     }
                 }
@@ -410,6 +418,22 @@ public class SurveillanceApiHandler {
                 sentryConfig.setDetectBike(configJson.optBoolean("detectBike", true));
                 configChanged = true;
             }
+            if (configJson.has("notifyIfNoObjectDetected")) {
+                sentryConfig.setNotifyIfNoObjectDetected(configJson.optBoolean("notifyIfNoObjectDetected", true));
+                configChanged = true;
+            }
+            if (configJson.has("minConfidencePerson")) {
+                sentryConfig.setMinConfidencePerson((float) configJson.optDouble("minConfidencePerson", 0.25));
+                configChanged = true;
+            }
+            if (configJson.has("minConfidenceCar")) {
+                sentryConfig.setMinConfidenceCar((float) configJson.optDouble("minConfidenceCar", 0.25));
+                configChanged = true;
+            }
+            if (configJson.has("minConfidenceBike")) {
+                sentryConfig.setMinConfidenceBike((float) configJson.optDouble("minConfidenceBike", 0.25));
+                configChanged = true;
+            }
             
             // Apply object filters to running engine
             if (sentry != null && configChanged) {
@@ -418,7 +442,11 @@ public class SurveillanceApiHandler {
                     sentryConfig.getAiConfidence(),
                     sentryConfig.isDetectPerson(),
                     sentryConfig.isDetectCar(),
-                    sentryConfig.isDetectBike()
+                    sentryConfig.isDetectBike(),
+                    sentryConfig.isNotifyIfNoObjectDetected(),
+                    sentryConfig.getMinConfidencePerson(),
+                    sentryConfig.getMinConfidenceCar(),
+                    sentryConfig.getMinConfidenceBike()
                 );
             }
             
@@ -436,7 +464,7 @@ public class SurveillanceApiHandler {
                 if ("silent".equals(action) || "flash_lights".equals(action) || "find_car".equals(action)) {
                     com.overdrive.app.config.UnifiedConfigManager.updateValues(
                             "surveillance", java.util.Collections.singletonMap("deterrentAction", action));
-                    CameraDaemon.log("Deterrent action set to: " + action);
+                    SystemDaemon.log("Deterrent action set to: " + action);
                     // Reset deterrent so it picks up new config
                     try {
                         com.overdrive.app.byd.cloud.BydCloudDeterrent.getInstance().reset();
@@ -459,7 +487,7 @@ public class SurveillanceApiHandler {
                     configJson.optString("distance", "3") : 
                     configJson.optString("distancePreset", "MEDIUM");
                 
-                CameraDaemon.log("Distance field received: " + distanceStr);
+                SystemDaemon.log("Distance field received: " + distanceStr);
                 
                 // Map distance to minObjectSize for AI detection
                 float minObjSize;
@@ -480,7 +508,7 @@ public class SurveillanceApiHandler {
                             case 5: minObjSize = 0.05f; distanceLabel = "VERY_FAR (~15m)"; break;
                             default: minObjSize = 0.12f; distanceLabel = "MEDIUM (~8m)"; break;
                         }
-                        CameraDaemon.log("Distance slider index " + distanceValue + " mapped to: " + distanceLabel);
+                        SystemDaemon.log("Distance slider index " + distanceValue + " mapped to: " + distanceLabel);
                     } else {
                         // Treat as actual distance in meters (6m+)
                         if (distanceValue <= 5) {
@@ -492,7 +520,7 @@ public class SurveillanceApiHandler {
                         } else {
                             minObjSize = 0.05f; distanceLabel = "VERY_FAR (~15m)";
                         }
-                        CameraDaemon.log("Distance " + distanceValue + "m mapped to: " + distanceLabel);
+                        SystemDaemon.log("Distance " + distanceValue + "m mapped to: " + distanceLabel);
                     }
                 } catch (NumberFormatException e) {
                     // Handle preset names (CLOSE, MEDIUM, FAR, VERY_FAR)
@@ -505,7 +533,7 @@ public class SurveillanceApiHandler {
                         case "MEDIUM":
                         default: minObjSize = 0.12f; distanceLabel = "MEDIUM (~8m)"; break;
                     }
-                    CameraDaemon.log("Distance preset name: " + distanceLabel);
+                    SystemDaemon.log("Distance preset name: " + distanceLabel);
                 }
                 
                 // Only update minObjectSize - don't touch motion sensitivity settings
@@ -521,10 +549,10 @@ public class SurveillanceApiHandler {
                     sentry.setObjectFilters(minObjSize, confidence, dPerson, dCar, dBike);
                 }
                 
-                CameraDaemon.log(String.format("Distance set: %s (minObjectSize=%.0f%%)",
+                SystemDaemon.log(String.format("Distance set: %s (minObjectSize=%.0f%%)",
                     distanceLabel, minObjSize * 100));
             } else {
-                CameraDaemon.log("No distance field in request - using existing config");
+                SystemDaemon.log("No distance field in request - using existing config");
             }
             
             // SOTA: Handle night mode toggle
@@ -626,7 +654,7 @@ public class SurveillanceApiHandler {
                     }
                     configChanged = true;
                 } catch (Exception e) {
-                    CameraDaemon.log("ROI parse error: " + e.getMessage());
+                    SystemDaemon.log("ROI parse error: " + e.getMessage());
                 }
             }
             
@@ -672,9 +700,9 @@ public class SurveillanceApiHandler {
                                 // Apply directly to C++ via JNI
                                 try {
                                     com.overdrive.app.surveillance.NativeMotion.setQuadrantRoi(q, blockMask);
-                                    CameraDaemon.log("ROI blocks applied to Q" + q + " via direct mask");
+                                    SystemDaemon.log("ROI blocks applied to Q" + q + " via direct mask");
                                 } catch (Exception e) {
-                                    CameraDaemon.log("ROI blocks apply failed Q" + q + ": " + e.getMessage());
+                                    SystemDaemon.log("ROI blocks apply failed Q" + q + ": " + e.getMessage());
                                 }
                             } else {
                                 sentryConfig.setRoiEnabled(q, false);
@@ -687,7 +715,7 @@ public class SurveillanceApiHandler {
                                 survCfg.put("roiEnabled_" + quadrantKeys[q], anyActive);
                                 com.overdrive.app.config.UnifiedConfigManager.setSurveillance(survCfg);
                             } catch (Exception e) {
-                                CameraDaemon.log("ROI blocks persist failed: " + e.getMessage());
+                                SystemDaemon.log("ROI blocks persist failed: " + e.getMessage());
                             }
                             configChanged = true;
                         }
@@ -717,7 +745,7 @@ public class SurveillanceApiHandler {
                     survConfig.put("scheduleEnabled", scheduleJson.optBoolean("scheduleEnabled", false));
                     survConfig.put("scheduleRules", scheduleJson.optJSONArray("scheduleRules"));
                     com.overdrive.app.config.UnifiedConfigManager.setSurveillance(survConfig);
-                    CameraDaemon.log("Schedule updated: " + schedule.getSummary());
+                    SystemDaemon.log("Schedule updated: " + schedule.getSummary());
                     configChanged = true;
                     
                     // IMMEDIATE ENFORCEMENT: If surveillance is currently active and the
@@ -730,13 +758,13 @@ public class SurveillanceApiHandler {
                         boolean currentlyActive = sentry != null && sentry.isActive();
                         
                         if (!withinWindow && currentlyActive) {
-                            CameraDaemon.log("SCHEDULE: Immediately stopping surveillance (outside new schedule window)");
-                            CameraDaemon.disableSurveillance();
+                            SystemDaemon.log("SCHEDULE: Immediately stopping surveillance (outside new schedule window)");
+                            SystemDaemon.disableSurveillance();
                         } else if (withinWindow && !currentlyActive 
                                 && !com.overdrive.app.monitor.AccMonitor.isAccOn()
-                                && !CameraDaemon.isSafeZoneSuppressed()) {
-                            CameraDaemon.log("SCHEDULE: Immediately enabling surveillance (within new schedule window)");
-                            CameraDaemon.enableSurveillance();
+                                && !SystemDaemon.isSafeZoneSuppressed()) {
+                            SystemDaemon.log("SCHEDULE: Immediately enabling surveillance (within new schedule window)");
+                            SystemDaemon.enableSurveillance();
                         }
                     } else {
                         // Schedule just disabled — if surveillance was suppressed by schedule,
@@ -744,14 +772,14 @@ public class SurveillanceApiHandler {
                         boolean currentlyActive = sentry != null && sentry.isActive();
                         if (!currentlyActive 
                                 && !com.overdrive.app.monitor.AccMonitor.isAccOn()
-                                && !CameraDaemon.isSafeZoneSuppressed()
+                                && !SystemDaemon.isSafeZoneSuppressed()
                                 && com.overdrive.app.config.UnifiedConfigManager.isSurveillanceEnabled()) {
-                            CameraDaemon.log("SCHEDULE: Disabled — resuming surveillance immediately");
-                            CameraDaemon.enableSurveillance();
+                            SystemDaemon.log("SCHEDULE: Disabled — resuming surveillance immediately");
+                            SystemDaemon.enableSurveillance();
                         }
                     }
                 } catch (Exception e) {
-                    CameraDaemon.log("Schedule parse error: " + e.getMessage());
+                    SystemDaemon.log("Schedule parse error: " + e.getMessage());
                 }
             }
             
@@ -766,9 +794,9 @@ public class SurveillanceApiHandler {
                         camCfg.put("probedAndValidated", true);
                         camCfg.put("manualOverride", true);
                         com.overdrive.app.config.UnifiedConfigManager.updateSection("camera", camCfg);
-                        CameraDaemon.log("Manual camera ID set: " + camId + " (will take effect on next restart)");
+                        SystemDaemon.log("Manual camera ID set: " + camId + " (will take effect on next restart)");
                     } catch (Exception e) {
-                        CameraDaemon.log("Failed to save manual camera ID: " + e.getMessage());
+                        SystemDaemon.log("Failed to save manual camera ID: " + e.getMessage());
                     }
                     configChanged = true;
                 }
@@ -781,9 +809,9 @@ public class SurveillanceApiHandler {
                     camCfg.put("probedAndValidated", false);
                     camCfg.put("manualOverride", false);
                     com.overdrive.app.config.UnifiedConfigManager.updateSection("camera", camCfg);
-                    CameraDaemon.log("Manual camera ID cleared — will auto-detect on next restart");
+                    SystemDaemon.log("Manual camera ID cleared — will auto-detect on next restart");
                 } catch (Exception e) {
-                    CameraDaemon.log("Failed to clear manual camera ID: " + e.getMessage());
+                    SystemDaemon.log("Failed to clear manual camera ID: " + e.getMessage());
                 }
                 configChanged = true;
             }
@@ -793,16 +821,16 @@ public class SurveillanceApiHandler {
                     // Apply config to the running surveillance engine
                     if (sentry != null) sentry.setConfig(sentryConfig);
                 } catch (Exception e) {
-                    CameraDaemon.log("Failed to apply config: " + e.getMessage());
+                    SystemDaemon.log("Failed to apply config: " + e.getMessage());
                 }
                 // Persist to unified config so settings survive restart
                 try {
                     com.overdrive.app.surveillance.SurveillanceConfigManager configManager =
                         new com.overdrive.app.surveillance.SurveillanceConfigManager();
                     configManager.saveConfig(sentryConfig);
-                    CameraDaemon.log("Surveillance config persisted via web portal");
+                    SystemDaemon.log("Surveillance config persisted via web portal");
                 } catch (Exception e) {
-                    CameraDaemon.log("Failed to persist surveillance config: " + e.getMessage());
+                    SystemDaemon.log("Failed to persist surveillance config: " + e.getMessage());
                 }
             }
             
@@ -817,9 +845,9 @@ public class SurveillanceApiHandler {
                         recordingChanged = true;
                         // Apply to running pipeline
                         try {
-                            CameraDaemon.setRecordingBitrate(bitrate);
+                            SystemDaemon.setRecordingBitrate(bitrate);
                         } catch (Exception e) {
-                            CameraDaemon.log("Failed to apply bitrate to pipeline: " + e.getMessage());
+                            SystemDaemon.log("Failed to apply bitrate to pipeline: " + e.getMessage());
                         }
                     }
                     if (configJson.has("recordingCodec")) {
@@ -828,25 +856,25 @@ public class SurveillanceApiHandler {
                         recordingChanged = true;
                         // Apply to running pipeline (will take effect on next recording)
                         try {
-                            CameraDaemon.setRecordingCodec(codec);
+                            SystemDaemon.setRecordingCodec(codec);
                         } catch (Exception e) {
-                            CameraDaemon.log("Failed to apply codec to pipeline: " + e.getMessage());
+                            SystemDaemon.log("Failed to apply codec to pipeline: " + e.getMessage());
                         }
                     }
                     if (recordingChanged) {
                         com.overdrive.app.config.UnifiedConfigManager.setRecording(recording);
-                        CameraDaemon.log("Recording settings saved: bitrate=" + recording.optString("bitrate") + 
+                        SystemDaemon.log("Recording settings saved: bitrate=" + recording.optString("bitrate") + 
                                         ", codec=" + recording.optString("codec"));
                     }
                 } catch (Exception e) {
-                    CameraDaemon.log("Failed to save recording settings: " + e.getMessage());
+                    SystemDaemon.log("Failed to save recording settings: " + e.getMessage());
                 }
             }
             
             HttpResponse.sendJsonSuccess(out);
             
         } catch (Exception e) {
-            CameraDaemon.log("Error applying surveillance config: " + e.getMessage());
+            SystemDaemon.log("Error applying surveillance config: " + e.getMessage());
             HttpResponse.sendJsonError(out, e.getMessage());
         }
     }
@@ -859,15 +887,15 @@ public class SurveillanceApiHandler {
         // Only actually start surveillance if ACC is currently OFF (sentry mode)
         boolean accIsOn = com.overdrive.app.monitor.AccMonitor.isAccOn();
         if (!accIsOn) {
-            CameraDaemon.enableSurveillance();
+            SystemDaemon.enableSurveillance();
         } else {
-            CameraDaemon.log("Surveillance preference saved — will activate on next ACC OFF");
+            SystemDaemon.log("Surveillance preference saved — will activate on next ACC OFF");
         }
         HttpResponse.sendJsonSuccess(out);
     }
     
     private static void handleDisable(OutputStream out) throws Exception {
-        CameraDaemon.disableSurveillance();
+        SystemDaemon.disableSurveillance();
         com.overdrive.app.config.UnifiedConfigManager.setSurveillanceEnabled(false);
         HttpResponse.sendJsonSuccess(out);
     }
@@ -887,7 +915,7 @@ public class SurveillanceApiHandler {
      * }
      */
     private static void sendHeatmap(OutputStream out) throws Exception {
-        GpuSurveillancePipeline gpuPipeline = CameraDaemon.getGpuPipeline();
+        GpuSurveillancePipeline gpuPipeline = SystemDaemon.getGpuPipeline();
         
         JSONObject response = new JSONObject();
         response.put("gridCols", 10);
@@ -953,7 +981,7 @@ public class SurveillanceApiHandler {
      * Ring buffer of the last 100 filter decisions (newest first).
      */
     private static void sendFilterLog(OutputStream out) throws Exception {
-        GpuSurveillancePipeline gpuPipeline = CameraDaemon.getGpuPipeline();
+        GpuSurveillancePipeline gpuPipeline = SystemDaemon.getGpuPipeline();
         SurveillanceEngineGpu sentry = (gpuPipeline != null) ? gpuPipeline.getSentry() : null;
         
         JSONObject response = new JSONObject();
@@ -986,7 +1014,7 @@ public class SurveillanceApiHandler {
         
         // Try live mosaic frame first
         byte[] mosaicRgb = null;
-        GpuSurveillancePipeline gpuPipeline = CameraDaemon.getGpuPipeline();
+        GpuSurveillancePipeline gpuPipeline = SystemDaemon.getGpuPipeline();
         if (gpuPipeline != null && gpuPipeline.getSentry() != null) {
             mosaicRgb = gpuPipeline.getSentry().getLatestMosaicFrame();
         }

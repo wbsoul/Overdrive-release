@@ -5,7 +5,7 @@ import com.overdrive.app.byd.cloud.BydCloudConfig;
 import com.overdrive.app.byd.cloud.BydCloudDeterrent;
 import com.overdrive.app.byd.cloud.crypto.BydCryptoUtils;
 import com.overdrive.app.config.UnifiedConfigManager;
-import com.overdrive.app.daemon.CameraDaemon;
+import com.overdrive.app.daemon.SystemDaemon;
 import com.overdrive.app.logging.DaemonLogger;
 
 import org.json.JSONObject;

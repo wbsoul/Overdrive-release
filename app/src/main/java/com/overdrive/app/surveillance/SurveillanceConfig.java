@@ -144,6 +144,12 @@ public class SurveillanceConfig {
     private boolean detectPerson = true;
     private boolean detectCar = true;
     private boolean detectBike = false;
+    // Whether to record/notify when motion fires but YOLO found no known object (timeout fallback)
+    private boolean notifyIfNoObjectDetected = true;
+    // Per-class minimum confidence thresholds (0.0-1.0)
+    private float minConfidencePerson = 0.25f;
+    private float minConfidenceCar    = 0.25f;
+    private float minConfidenceBike   = 0.25f;
     
     // Recording
     private int preRecordSeconds = 5;
@@ -522,6 +528,10 @@ public class SurveillanceConfig {
     public boolean isDetectPerson() { return detectPerson; }
     public boolean isDetectCar() { return detectCar; }
     public boolean isDetectBike() { return detectBike; }
+    public boolean isNotifyIfNoObjectDetected() { return notifyIfNoObjectDetected; }
+    public float getMinConfidencePerson() { return minConfidencePerson; }
+    public float getMinConfidenceCar()    { return minConfidenceCar; }
+    public float getMinConfidenceBike()   { return minConfidenceBike; }
     public int getPreRecordSeconds() { return preRecordSeconds; }
     public int getPostRecordSeconds() { return postRecordSeconds; }
     
@@ -537,6 +547,10 @@ public class SurveillanceConfig {
     public void setDetectPerson(boolean detect) { this.detectPerson = detect; }
     public void setDetectCar(boolean detect) { this.detectCar = detect; }
     public void setDetectBike(boolean detect) { this.detectBike = detect; }
+    public void setNotifyIfNoObjectDetected(boolean notify) { this.notifyIfNoObjectDetected = notify; }
+    public void setMinConfidencePerson(float v) { this.minConfidencePerson = Math.max(0f, Math.min(1f, v)); }
+    public void setMinConfidenceCar(float v)    { this.minConfidenceCar    = Math.max(0f, Math.min(1f, v)); }
+    public void setMinConfidenceBike(float v)   { this.minConfidenceBike   = Math.max(0f, Math.min(1f, v)); }
     
     public void setPreRecordSeconds(int seconds) {
         this.preRecordSeconds = Math.max(1, Math.min(30, seconds));

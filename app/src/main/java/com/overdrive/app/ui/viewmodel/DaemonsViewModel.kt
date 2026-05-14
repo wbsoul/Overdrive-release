@@ -31,8 +31,8 @@ class DaemonsViewModel(app: Application) : AndroidViewModel(app) {
     // Expose zrok controller for tunnel URL access
     val zrokController: ZrokController
 
-    // Expose camera daemon controller for startup manager
-    val cameraDaemonController: CameraDaemonController
+    // Expose system daemon controller for startup manager
+    val systemDaemonController: SystemDaemonController
     
     // Expose singbox controller for startup manager
     val singboxController: SingboxController
@@ -51,11 +51,11 @@ class DaemonsViewModel(app: Application) : AndroidViewModel(app) {
     init {
         cloudflaredController = CloudflaredController(adbLauncher)
         zrokController = ZrokController(app, adbLauncher)
-        cameraDaemonController = CameraDaemonController(app, adbLauncher)
+        systemDaemonController = SystemDaemonController(app, adbLauncher)
         singboxController = SingboxController(adbLauncher)
         
         controllers = mapOf(
-            DaemonType.CAMERA_DAEMON to cameraDaemonController,
+            DaemonType.CAMERA_DAEMON to systemDaemonController,
             DaemonType.SENTRY_DAEMON to SentryDaemonController(adbLauncher),
             DaemonType.ACC_SENTRY_DAEMON to AccSentryDaemonController(adbLauncher),
             DaemonType.SINGBOX_PROXY to singboxController,

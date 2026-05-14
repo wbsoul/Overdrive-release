@@ -19,7 +19,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.fragment.app.Fragment
 import com.google.android.material.button.MaterialButton
 import com.overdrive.app.R
-import com.overdrive.app.daemon.CameraDaemon
+import com.overdrive.app.daemon.SystemDaemon
 
 /**
  * WebView fragment that loads pages from the daemon's HTTP server.
@@ -151,7 +151,7 @@ class WebViewFragment : Fragment() {
         injectAuthCookie()
 
         currentUrl = savedInstanceState?.getString(KEY_SAVED_URL)
-            ?: ("http://127.0.0.1:${CameraDaemon.HTTP_PORT}" +
+            ?: ("http://127.0.0.1:${SystemDaemon.HTTP_PORT}" +
                 (arguments?.getString(ARG_PAGE_PATH)
                     ?: arguments?.getString("page_path")
                     ?: "/surveillance"))
@@ -192,8 +192,8 @@ class WebViewFragment : Fragment() {
                     val url = request?.url?.toString() ?: return null
 
                     // FILTER: Only intercept our local server and external map/CDN resources
-                    val isLocalServer = url.contains("127.0.0.1:${CameraDaemon.HTTP_PORT}") ||
-                        url.contains("localhost:${CameraDaemon.HTTP_PORT}")
+                    val isLocalServer = url.contains("127.0.0.1:${SystemDaemon.HTTP_PORT}") ||
+                        url.contains("localhost:${SystemDaemon.HTTP_PORT}")
                     
                     // Bypass proxy for map tiles and CDN resources (sing-box proxy blocks these)
                     val isMapTile = url.contains("tile.openstreetmap.org") ||
@@ -587,7 +587,7 @@ class WebViewFragment : Fragment() {
             if (jwt != null) {
                 val cm = CookieManager.getInstance()
                 cm.setAcceptCookie(true)
-                cm.setCookie("http://127.0.0.1:${CameraDaemon.HTTP_PORT}", "byd_session=$jwt; Path=/; Max-Age=31536000")
+                cm.setCookie("http://127.0.0.1:${SystemDaemon.HTTP_PORT}", "byd_session=$jwt; Path=/; Max-Age=31536000")
                 cm.flush()
                 android.util.Log.d("WebView", "Auth cookie set")
             } else {
@@ -597,7 +597,7 @@ class WebViewFragment : Fragment() {
                         val retryJwt = getAuthJwt()
                         if (retryJwt != null) {
                             val cm = CookieManager.getInstance()
-                            cm.setCookie("http://127.0.0.1:${CameraDaemon.HTTP_PORT}", "byd_session=$retryJwt; Path=/; Max-Age=31536000")
+                            cm.setCookie("http://127.0.0.1:${SystemDaemon.HTTP_PORT}", "byd_session=$retryJwt; Path=/; Max-Age=31536000")
                             cm.flush()
                             android.util.Log.d("WebView", "Auth cookie set (retry)")
                             // Reload page now that auth is available

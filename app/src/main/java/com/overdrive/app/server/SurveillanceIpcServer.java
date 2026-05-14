@@ -1,6 +1,6 @@
 package com.overdrive.app.server;
 
-import com.overdrive.app.daemon.CameraDaemon;
+import com.overdrive.app.daemon.SystemDaemon;
 import com.overdrive.app.logging.DaemonLogger;
 import org.json.JSONObject;
 
@@ -31,7 +31,7 @@ public class SurveillanceIpcServer implements Runnable {
     // IPC server typically has fewer connections than HTTP, so 8 threads is sufficient
     private final ExecutorService threadPool = Executors.newFixedThreadPool(8);
 
-    // ABRP integration references (set by CameraDaemon)
+    // ABRP integration references (set by SystemDaemon)
     private static volatile com.overdrive.app.abrp.AbrpConfig abrpConfig;
     private static volatile com.overdrive.app.abrp.AbrpTelemetryService abrpService;
 
@@ -58,7 +58,7 @@ public class SurveillanceIpcServer implements Runnable {
         return true;
     }
 
-    // MQTT integration reference (set by CameraDaemon)
+    // MQTT integration reference (set by SystemDaemon)
     private static volatile com.overdrive.app.mqtt.MqttConnectionManager mqttManager;
 
     public static void setMqttManager(com.overdrive.app.mqtt.MqttConnectionManager manager) {
@@ -123,7 +123,7 @@ public class SurveillanceIpcServer implements Runnable {
                     // Start surveillance (from Telegram /start command)
                     com.overdrive.app.config.UnifiedConfigManager.setSurveillanceEnabled(true);
                     if (!com.overdrive.app.monitor.AccMonitor.isAccOn()) {
-                        CameraDaemon.enableSurveillance();
+                        SystemDaemon.enableSurveillance();
                         logger.info("Surveillance started via Telegram IPC");
                     } else {
                         logger.info("Surveillance preference saved via Telegram — will activate on ACC OFF");
@@ -135,7 +135,7 @@ public class SurveillanceIpcServer implements Runnable {
                     
                 case "STOP":
                     // Stop surveillance (from Telegram /stop command)
-                    CameraDaemon.disableSurveillance();
+                    SystemDaemon.disableSurveillance();
                     com.overdrive.app.config.UnifiedConfigManager.setSurveillanceEnabled(false);
                     logger.info("Surveillance stopped via Telegram IPC");
                     response.put("success", true);
@@ -147,7 +147,7 @@ public class SurveillanceIpcServer implements Runnable {
                     // Get surveillance status (from Telegram /status command)
                     // Read from persisted config (not in-memory flag which can get stale)
                     boolean enabled = com.overdrive.app.config.UnifiedConfigManager.isSurveillanceEnabled();
-                    boolean active = CameraDaemon.isSurveillanceActive();
+                    boolean active = SystemDaemon.isSurveillanceActive();
                     response.put("success", true);
                     response.put("enabled", enabled);
                     response.put("active", active);
@@ -170,7 +170,7 @@ public class SurveillanceIpcServer implements Runnable {
                 case "DISABLE_SURVEILLANCE":
                     // Persist preference and stop if currently running
                     com.overdrive.app.config.UnifiedConfigManager.setSurveillanceEnabled(false);
-                    CameraDaemon.disableSurveillance();
+                    SystemDaemon.disableSurveillance();
                     logger.info("Surveillance preference set to DISABLED and stopped");
                     response.put("success", true);
                     response.put("enabled", false);
@@ -366,7 +366,7 @@ public class SurveillanceIpcServer implements Runnable {
                     overlayConfig.put("enabled", enabled);
                     com.overdrive.app.config.UnifiedConfigManager.setTelemetryOverlay(overlayConfig);
                     // Notify pipeline
-                    com.overdrive.app.surveillance.GpuSurveillancePipeline pipeline = CameraDaemon.getGpuPipeline();
+                    com.overdrive.app.surveillance.GpuSurveillancePipeline pipeline = SystemDaemon.getGpuPipeline();
                     if (pipeline != null) {
                         pipeline.setOverlayEnabled(enabled);
                     }
@@ -406,7 +406,7 @@ public class SurveillanceIpcServer implements Runnable {
     private void applyConfig(JSONObject config) {
         try {
             com.overdrive.app.surveillance.GpuSurveillancePipeline pipeline =
-                CameraDaemon.getGpuPipeline();
+                SystemDaemon.getGpuPipeline();
             
             // Sentry may be null if surveillance is not running - that's OK
             com.overdrive.app.surveillance.SurveillanceEngineGpu sentry = null;
@@ -482,34 +482,34 @@ public class SurveillanceIpcServer implements Runnable {
                     // RACE CONDITION FIX: Only enable surveillance if ACC is actually OFF.
                     // AccSentryDaemon's retry loop may send this IPC after ACC turned ON.
                     if (!com.overdrive.app.monitor.AccMonitor.isAccOn()) {
-                        CameraDaemon.enableSurveillance();
+                        SystemDaemon.enableSurveillance();
                         logger.info("Surveillance enabled via IPC");
                     } else {
                         logger.info("Surveillance preference saved via IPC — but ACC is ON, not activating");
                     }
                 } else {
-                    CameraDaemon.disableSurveillance();
+                    SystemDaemon.disableSurveillance();
                     logger.info("Surveillance disabled via IPC");
                 }
             }
             
             // Stop surveillance without persisting preference (battery protection, session stop)
             if (config.has("stopSurveillance") && config.getBoolean("stopSurveillance")) {
-                CameraDaemon.disableSurveillance();
+                SystemDaemon.disableSurveillance();
                 logger.info("Surveillance stopped via IPC (preference preserved)");
             }
             
             // Handle ACC state if provided
             if (config.has("accOff")) {
                 boolean accOff = config.getBoolean("accOff");
-                CameraDaemon.onAccStateChanged(accOff);
+                SystemDaemon.onAccStateChanged(accOff);
                 logger.info("ACC state changed via IPC: " + (accOff ? "OFF" : "ON"));
             }
             
             // Handle gear state if provided
             if (config.has("gear")) {
                 int gear = config.getInt("gear");
-                CameraDaemon.onGearChanged(gear);
+                SystemDaemon.onGearChanged(gear);
                 logger.info("Gear changed via IPC: " + com.overdrive.app.recording.RecordingModeManager.gearToString(gear));
             }
             
@@ -611,7 +611,7 @@ public class SurveillanceIpcServer implements Runnable {
             if (config.has("bitrate")) {
                 String bitrate = config.optString("bitrate", "MEDIUM").toUpperCase();
                 if (bitrate.equals("LOW") || bitrate.equals("MEDIUM") || bitrate.equals("HIGH")) {
-                    CameraDaemon.setRecordingBitrate(bitrate);
+                    SystemDaemon.setRecordingBitrate(bitrate);
                     // Also update HttpServer's static setting for web UI sync
                     HttpServer.setRecordingBitrateStatic(bitrate);
                     logger.info("Recording bitrate set to: " + bitrate);
@@ -622,7 +622,7 @@ public class SurveillanceIpcServer implements Runnable {
             if (config.has("codec")) {
                 String codec = config.optString("codec", "H264").toUpperCase();
                 if (codec.equals("H264") || codec.equals("H265")) {
-                    CameraDaemon.setRecordingCodec(codec);
+                    SystemDaemon.setRecordingCodec(codec);
                     // Also update HttpServer's static setting for web UI sync
                     HttpServer.setRecordingCodecStatic(codec);
                     logger.info("Recording codec set to: " + codec);
@@ -895,7 +895,7 @@ public class SurveillanceIpcServer implements Runnable {
     private void applyRoi(JSONObject roiData) {
         try {
             com.overdrive.app.surveillance.GpuSurveillancePipeline pipeline =
-                CameraDaemon.getGpuPipeline();
+                SystemDaemon.getGpuPipeline();
             
             if (pipeline == null || pipeline.getSentry() == null) {
                 logger.warn("Cannot apply ROI - surveillance not initialized");
@@ -954,12 +954,12 @@ public class SurveillanceIpcServer implements Runnable {
         config.put("lightThreshold", 0.4);
         config.put("aiEnabled", true);
         config.put("scheduleEnabled", false);
-        config.put("bitrate", CameraDaemon.getRecordingBitrate());
-        config.put("codec", CameraDaemon.getRecordingCodec());
+        config.put("bitrate", SystemDaemon.getRecordingBitrate());
+        config.put("codec", SystemDaemon.getRecordingCodec());
         
         // Get actual values from sentry config if available
         com.overdrive.app.surveillance.GpuSurveillancePipeline pipeline =
-            CameraDaemon.getGpuPipeline();
+            SystemDaemon.getGpuPipeline();
         
         com.overdrive.app.surveillance.SurveillanceConfig sentryConfig = null;
         
@@ -1052,7 +1052,7 @@ public class SurveillanceIpcServer implements Runnable {
         
         // Read from persisted config (not in-memory flag)
         boolean enabled = com.overdrive.app.config.UnifiedConfigManager.isSurveillanceEnabled();
-        boolean active = CameraDaemon.isSurveillanceActive();
+        boolean active = SystemDaemon.isSurveillanceActive();
         
         status.put("enabled", enabled);
         status.put("active", active);

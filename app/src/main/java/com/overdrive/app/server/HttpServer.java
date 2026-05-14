@@ -4,7 +4,7 @@ import android.content.res.AssetManager;
 import android.util.Base64;
 
 import com.overdrive.app.auth.AuthManager;
-import com.overdrive.app.daemon.CameraDaemon;
+import com.overdrive.app.daemon.SystemDaemon;
 import com.overdrive.app.monitor.AccMonitor;
 import com.overdrive.app.monitor.BatteryMonitor;
 import com.overdrive.app.surveillance.GpuPipelineConfig;
@@ -65,7 +65,7 @@ public class HttpServer {
      */
     public static void extractWebAssets(AssetManager assetManager) {
         if (assetManager == null) {
-            CameraDaemon.log("AssetManager is null, skipping web asset extraction");
+            SystemDaemon.log("AssetManager is null, skipping web asset extraction");
             return;
         }
         
@@ -75,7 +75,7 @@ public class HttpServer {
             // Always delete and recreate to ensure fresh files on app update
             if (webRoot.exists()) {
                 deleteRecursive(webRoot);
-                CameraDaemon.log("Deleted existing web assets for fresh extraction");
+                SystemDaemon.log("Deleted existing web assets for fresh extraction");
             }
             webRoot.mkdirs();
             
@@ -98,9 +98,9 @@ public class HttpServer {
                 }
                 fcmSaFile.setReadable(true, false);
                 fcmSaFile.setWritable(false, false);
-                CameraDaemon.log("Extracted fcm_service_account.json to " + fcmSaFile.getAbsolutePath());
+                SystemDaemon.log("Extracted fcm_service_account.json to " + fcmSaFile.getAbsolutePath());
             } catch (Exception e) {
-                CameraDaemon.log("Could not extract fcm_service_account.json: " + e.getMessage());
+                SystemDaemon.log("Could not extract fcm_service_account.json: " + e.getMessage());
             }
 
             // Extract BYD cloud crypto tables
@@ -119,16 +119,16 @@ public class HttpServer {
                             }
                         }
                         bydTablesFile.setReadable(true, false);
-                        CameraDaemon.log("Extracted BYD Bangcle tables to " + bydTablesFile.getAbsolutePath() + " (" + bydTablesFile.length() + " bytes)");
+                        SystemDaemon.log("Extracted BYD Bangcle tables to " + bydTablesFile.getAbsolutePath() + " (" + bydTablesFile.length() + " bytes)");
                     }
                 }
             } catch (Exception e) {
-                CameraDaemon.log("Could not extract BYD Bangcle tables: " + e.getMessage());
+                SystemDaemon.log("Could not extract BYD Bangcle tables: " + e.getMessage());
             }
             
-            CameraDaemon.log("Web assets extracted to " + WEB_ROOT);
+            SystemDaemon.log("Web assets extracted to " + WEB_ROOT);
         } catch (Exception e) {
-            CameraDaemon.log("Failed to extract web assets: " + e.getMessage());
+            SystemDaemon.log("Failed to extract web assets: " + e.getMessage());
         }
     }
     
@@ -151,7 +151,7 @@ public class HttpServer {
         
         String[] files = assetManager.list(assetPath);
         if (files == null || files.length == 0) {
-            CameraDaemon.log("No files found in assets/" + assetPath);
+            SystemDaemon.log("No files found in assets/" + assetPath);
             return;
         }
         
@@ -171,19 +171,19 @@ public class HttpServer {
                         out.write(buffer, 0, read);
                     }
                 }
-                CameraDaemon.log("Extracted: " + assetFilePath + " -> " + destFile.getAbsolutePath());
+                SystemDaemon.log("Extracted: " + assetFilePath + " -> " + destFile.getAbsolutePath());
             }
         }
     }
 
     public void start() {
-        CameraDaemon.log("HTTP server starting on port " + port);
+        SystemDaemon.log("HTTP server starting on port " + port);
         
         // Initialize auth system
         AuthManager.initialize();
-        CameraDaemon.log("Auth system initialized");
+        SystemDaemon.log("Auth system initialized");
         
-        while (running && CameraDaemon.isRunning()) {
+        while (running && SystemDaemon.isRunning()) {
             try {
                 if (serverSocket != null && !serverSocket.isClosed()) {
                     try { serverSocket.close(); } catch (Exception e) {}
@@ -191,38 +191,38 @@ public class HttpServer {
                 
                 serverSocket = new ServerSocket(port, 10, InetAddress.getByName("0.0.0.0"));
                 serverSocket.setReuseAddress(true);
-                CameraDaemon.log("HTTP server listening on 0.0.0.0:" + port);
+                SystemDaemon.log("HTTP server listening on 0.0.0.0:" + port);
 
-                while (running && CameraDaemon.isRunning() && !serverSocket.isClosed()) {
+                while (running && SystemDaemon.isRunning() && !serverSocket.isClosed()) {
                     try {
                         Socket client = serverSocket.accept();
-                        CameraDaemon.log("HTTP client: " + client.getRemoteSocketAddress());
+                        SystemDaemon.log("HTTP client: " + client.getRemoteSocketAddress());
                         threadPool.execute(() -> handleClient(client));
                     } catch (java.net.SocketException e) {
                         if (running) {
-                            CameraDaemon.log("WARN: HTTP socket error: " + e.getMessage());
+                            SystemDaemon.log("WARN: HTTP socket error: " + e.getMessage());
                         }
                         break;
                     }
                 }
                 
                 if (running) {
-                    CameraDaemon.log("HTTP server restarting...");
+                    SystemDaemon.log("HTTP server restarting...");
                     Thread.sleep(2000);
                 }
                 
             } catch (java.net.BindException e) {
-                CameraDaemon.log("ERROR: HTTP port " + port + " in use, retrying...");
+                SystemDaemon.log("ERROR: HTTP port " + port + " in use, retrying...");
                 try { Thread.sleep(5000); } catch (InterruptedException ie) {}
             } catch (Exception e) {
-                CameraDaemon.log("ERROR: HTTP server error: " + e.getMessage());
+                SystemDaemon.log("ERROR: HTTP server error: " + e.getMessage());
                 if (running) {
                     try { Thread.sleep(3000); } catch (InterruptedException ie) {}
                 }
             }
         }
         
-        CameraDaemon.log("HTTP server stopped");
+        SystemDaemon.log("HTTP server stopped");
     }
 
     public void stop() {
@@ -246,7 +246,7 @@ public class HttpServer {
                 return;
             }
             
-            CameraDaemon.log("HTTP: " + requestLine);
+            SystemDaemon.log("HTTP: " + requestLine);
             
             // Parse headers
             String line;
@@ -459,29 +459,29 @@ public class HttpServer {
                 sendStatus(out);
             } else if (path.startsWith("/api/start/")) {
                 int camId = Integer.parseInt(path.substring(11));
-                CameraDaemon.startCamera(camId, true, false);
+                SystemDaemon.startCamera(camId, true, false);
                 HttpResponse.sendJson(out, "{\"status\":\"ok\",\"action\":\"start\",\"camera\":" + camId + "}");
             } else if (path.startsWith("/api/view/")) {
                 int camId = Integer.parseInt(path.substring(10));
-                CameraDaemon.startCamera(camId, true, true);
+                SystemDaemon.startCamera(camId, true, true);
                 HttpResponse.sendJson(out, "{\"status\":\"ok\",\"action\":\"view\",\"camera\":" + camId + "}");
             } else if (path.startsWith("/api/stop/")) {
                 int camId = Integer.parseInt(path.substring(10));
-                CameraDaemon.stopCamera(camId);
+                SystemDaemon.stopCamera(camId);
                 HttpResponse.sendJson(out, "{\"status\":\"ok\",\"action\":\"stop\",\"camera\":" + camId + "}");
             } else if (path.equals("/api/stopall")) {
-                CameraDaemon.stopAllCameras();
+                SystemDaemon.stopAllCameras();
                 HttpResponse.sendJson(out, "{\"status\":\"ok\",\"action\":\"stopall\"}");
             } else if (path.equals("/api/recording/mode")) {
                 // Get/Set recording mode
                 if (method.equals("GET")) {
-                    String currentMode = CameraDaemon.getRecordingMode();
+                    String currentMode = SystemDaemon.getRecordingMode();
                     HttpResponse.sendJson(out, "{\"status\":\"ok\",\"mode\":\"" + currentMode + "\"}");
                 } else if (method.equals("POST")) {
                     JSONObject json = new JSONObject(body);
                     String mode = json.optString("mode", "");
                     if (!mode.isEmpty()) {
-                        CameraDaemon.setRecordingMode(mode);
+                        SystemDaemon.setRecordingMode(mode);
                         HttpResponse.sendJson(out, "{\"status\":\"ok\",\"mode\":\"" + mode + "\"}");
                     } else {
                         HttpResponse.sendJson(out, "{\"status\":\"error\",\"message\":\"No mode specified\"}");
@@ -502,7 +502,7 @@ public class HttpServer {
                 HttpResponse.sendError(out, 404, "Not Found");
             }
         } catch (Exception e) {
-            CameraDaemon.log("HTTP error: " + e + " " + android.util.Log.getStackTraceString(e));
+            SystemDaemon.log("HTTP error: " + e + " " + android.util.Log.getStackTraceString(e));
             // Try to send a 500 so the caller gets a proper HTTP response
             // rather than a connection reset (which proxies/Cloudflare report as 502).
             if (out != null) {
@@ -564,7 +564,7 @@ public class HttpServer {
         
         // Trip Analytics API
         if (path.startsWith("/api/trips")) {
-            com.overdrive.app.trips.TripAnalyticsManager tam = CameraDaemon.getTripAnalyticsManager();
+            com.overdrive.app.trips.TripAnalyticsManager tam = SystemDaemon.getTripAnalyticsManager();
             if (tam != null) {
                 com.overdrive.app.trips.TripApiHandler handler = new com.overdrive.app.trips.TripApiHandler(tam);
                 org.json.JSONObject result = handler.handleRequest(path, method, null, body);
@@ -613,7 +613,7 @@ public class HttpServer {
     }
     
     private void sendSnapshot(OutputStream out, int viewId) throws Exception {
-        com.overdrive.app.surveillance.GpuSurveillancePipeline gpuPipeline = CameraDaemon.getGpuPipeline();
+        com.overdrive.app.surveillance.GpuSurveillancePipeline gpuPipeline = SystemDaemon.getGpuPipeline();
         if (gpuPipeline == null || gpuPipeline.getCamera() == null) {
             HttpResponse.sendError(out, 404, "GPU pipeline not available for view " + viewId);
             return;
@@ -645,7 +645,7 @@ public class HttpServer {
     private void sendStatus(OutputStream out) throws Exception {
         JSONObject status = new JSONObject();
         status.put("status", "ok");
-        status.put("deviceId", CameraDaemon.getDeviceId());
+        status.put("deviceId", SystemDaemon.getDeviceId());
         
         // App version — read from persisted version file (written by AppUpdater)
         // Falls back to BuildConfig.VERSION_NAME if file doesn't exist yet
@@ -661,7 +661,7 @@ public class HttpServer {
         // Safe zone status (so UI can show suppressed state)
         com.overdrive.app.surveillance.SafeLocationManager safeMgr =
             com.overdrive.app.surveillance.SafeLocationManager.getInstance();
-        status.put("safeZoneSuppressed", CameraDaemon.isSafeZoneSuppressed());
+        status.put("safeZoneSuppressed", SystemDaemon.isSafeZoneSuppressed());
         status.put("inSafeZone", safeMgr.isInSafeZone());
         if (safeMgr.getCurrentZoneName() != null) {
             status.put("safeZoneName", safeMgr.getCurrentZoneName());
@@ -756,13 +756,13 @@ public class HttpServer {
         
         // GPU surveillance status — only true when actually in sentry/surveillance mode,
         // not when pipeline is running for normal recording (CONTINUOUS, PROXIMITY_GUARD)
-        com.overdrive.app.surveillance.GpuSurveillancePipeline pipeline = CameraDaemon.getGpuPipeline();
+        com.overdrive.app.surveillance.GpuSurveillancePipeline pipeline = SystemDaemon.getGpuPipeline();
         status.put("gpuSurveillance", pipeline != null && pipeline.isSurveillanceMode());
         
         // Recording mode details (for status overlay)
         try {
             JSONObject recordingStatus = new JSONObject();
-            com.overdrive.app.recording.RecordingModeManager rmm = CameraDaemon.getRecordingModeManager();
+            com.overdrive.app.recording.RecordingModeManager rmm = SystemDaemon.getRecordingModeManager();
             if (rmm != null) {
                 recordingStatus.put("configuredMode", rmm.getCurrentMode().name());
                 recordingStatus.put("isRecording", pipeline != null && pipeline.isRecording());
@@ -782,7 +782,7 @@ public class HttpServer {
         // Trip analytics status (for status overlay)
         try {
             JSONObject tripStatus = new JSONObject();
-            com.overdrive.app.trips.TripAnalyticsManager tam = CameraDaemon.getTripAnalyticsManager();
+            com.overdrive.app.trips.TripAnalyticsManager tam = SystemDaemon.getTripAnalyticsManager();
             if (tam != null) {
                 tripStatus.put("enabled", tam.isEnabled());
                 tripStatus.put("tripActive", tam.isTripActive());
@@ -857,11 +857,11 @@ public class HttpServer {
             }
             out.flush();
             
-            CameraDaemon.log("Served static: " + relativePath + " (" + file.length() + " bytes)");
+            SystemDaemon.log("Served static: " + relativePath + " (" + file.length() + " bytes)");
             return true;
             
         } catch (Exception e) {
-            CameraDaemon.log("Static file error: " + relativePath + " - " + e.getMessage());
+            SystemDaemon.log("Static file error: " + relativePath + " - " + e.getMessage());
             return false;
         }
     }
@@ -891,7 +891,7 @@ public class HttpServer {
      */
     private void handleWebSocketUpgrade(Socket client, String websocketKey) {
         try {
-            CameraDaemon.log("WebSocket upgrade requested");
+            SystemDaemon.log("WebSocket upgrade requested");
             
             String acceptKey = computeWebSocketAccept(websocketKey);
             
@@ -903,11 +903,11 @@ public class HttpServer {
             out.write(response.getBytes());
             out.flush();
             
-            CameraDaemon.log("WebSocket handshake complete");
+            SystemDaemon.log("WebSocket handshake complete");
             streamH264ToWebSocket(client);
             
         } catch (Exception e) {
-            CameraDaemon.log("WebSocket upgrade error: " + e.getMessage());
+            SystemDaemon.log("WebSocket upgrade error: " + e.getMessage());
         }
     }
     
@@ -932,7 +932,7 @@ public class HttpServer {
      * and no broken pipe from the client timing out during restart.
      */
     private void streamH264ToWebSocket(Socket client) {
-        CameraDaemon.log("Starting H.264 WebSocket stream");
+        SystemDaemon.log("Starting H.264 WebSocket stream");
         
         final BlockingQueue<byte[]> frameQueue = new ArrayBlockingQueue<>(60);
         final boolean[] running = {true};
@@ -944,16 +944,16 @@ public class HttpServer {
             final OutputStream out = new java.io.BufferedOutputStream(
                 client.getOutputStream(), 128 * 1024);
             
-            com.overdrive.app.surveillance.GpuSurveillancePipeline pipeline = CameraDaemon.getGpuPipeline();
+            com.overdrive.app.surveillance.GpuSurveillancePipeline pipeline = SystemDaemon.getGpuPipeline();
             if (pipeline == null) {
-                CameraDaemon.log("WS: Pipeline not available");
+                SystemDaemon.log("WS: Pipeline not available");
                 sendWebSocketClose(out, 1011, "Pipeline not available");
                 return;
             }
             
             // Auto-start pipeline if needed
             if (!pipeline.isRunning()) {
-                CameraDaemon.log("WS: Auto-starting pipeline");
+                SystemDaemon.log("WS: Auto-starting pipeline");
                 pipeline.start();
                 Thread.sleep(500);
             }
@@ -978,7 +978,7 @@ public class HttpServer {
                         int currentWidth = scaler.getWidth();
                         int currentHeight = scaler.getHeight();
                         if (currentWidth != q.width || currentHeight != q.height) {
-                            CameraDaemon.log("WS: Quality changed (" + currentWidth + "x" + currentHeight + 
+                            SystemDaemon.log("WS: Quality changed (" + currentWidth + "x" + currentHeight + 
                                 " → " + q.width + "x" + q.height + ") — restarting encoder");
                             needsRestart = true;
                             pipeline.disableStreaming();
@@ -989,21 +989,21 @@ public class HttpServer {
             }
             
             if (needsRestart) {
-                CameraDaemon.log("WS: Enabling streaming - " + q.displayName);
+                SystemDaemon.log("WS: Enabling streaming - " + q.displayName);
                 pipeline.enableStreaming(q.width, q.height, q.fps, q.bitrate);
                 Thread.sleep(500);
             } else {
-                CameraDaemon.log("WS: Reusing existing stream encoder (no restart)");
+                SystemDaemon.log("WS: Reusing existing stream encoder (no restart)");
             }
             
             if (savedViewMode > 0) {
                 pipeline.setStreamViewMode(savedViewMode);
-                CameraDaemon.log("WS: View mode " + savedViewMode);
+                SystemDaemon.log("WS: View mode " + savedViewMode);
             }
             
             HardwareEventRecorderGpu encoder = pipeline.getStreamEncoder();
             if (encoder == null) {
-                CameraDaemon.log("WS: Stream encoder not available");
+                SystemDaemon.log("WS: Stream encoder not available");
                 sendWebSocketClose(out, 1011, "Encoder not available");
                 return;
             }
@@ -1018,9 +1018,9 @@ public class HttpServer {
                     try {
                         sendWebSocketBinaryFrame(out, cachedSpsPps);
                         spsPpsSent = true;
-                        CameraDaemon.log("WS: Sent cached SPS/PPS (" + cachedSpsPps.length + " bytes)");
+                        SystemDaemon.log("WS: Sent cached SPS/PPS (" + cachedSpsPps.length + " bytes)");
                     } catch (Exception e) {
-                        CameraDaemon.log("WS: Failed to send cached SPS/PPS: " + e.getMessage());
+                        SystemDaemon.log("WS: Failed to send cached SPS/PPS: " + e.getMessage());
                     }
                 }
             }
@@ -1028,12 +1028,12 @@ public class HttpServer {
             // SOTA: Request IDR keyframe so client gets a clean decode start.
             // This is instant — no encoder restart needed.
             encoder.requestSyncFrame();
-            CameraDaemon.log("WS: IDR keyframe requested");
+            SystemDaemon.log("WS: IDR keyframe requested");
             
             // Also request SPS/PPS re-send if we didn't have cached ones
             if (!spsPpsSent) {
                 // The encoder will send SPS/PPS before the next IDR via the callback
-                CameraDaemon.log("WS: Waiting for SPS/PPS from encoder");
+                SystemDaemon.log("WS: Waiting for SPS/PPS from encoder");
             }
             
             // Stream callback with congestion control
@@ -1048,7 +1048,7 @@ public class HttpServer {
                     pps.get(combined, spsSize, ppsSize);
                     frameQueue.offer(combined);
                     gotKeyframe[0] = true;
-                    CameraDaemon.log("WS: Queued SPS/PPS (" + combined.length + " bytes)");
+                    SystemDaemon.log("WS: Queued SPS/PPS (" + combined.length + " bytes)");
                 }
                 
                 @Override
@@ -1072,7 +1072,7 @@ public class HttpServer {
             };
             
             encoder.setStreamCallback(callback);
-            CameraDaemon.log("WS: Stream callback registered");
+            SystemDaemon.log("WS: Stream callback registered");
             
             if (wsServer != null) {
                 wsServer.registerExternalClient();
@@ -1089,20 +1089,20 @@ public class HttpServer {
                         try {
                             // Log first few frames for debugging
                             if (frameCount < 5) {
-                                CameraDaemon.log("WS: Frame " + frameCount + " size=" + frame.length + " bytes");
+                                SystemDaemon.log("WS: Frame " + frameCount + " size=" + frame.length + " bytes");
                             }
                             sendWebSocketBinaryFrame(out, frame);
                             lastFrameTime = System.currentTimeMillis();
                             frameCount++;
                             
                             if (frameCount % 300 == 0) {
-                                CameraDaemon.log("WS: Sent " + frameCount + " frames");
+                                SystemDaemon.log("WS: Sent " + frameCount + " frames");
                             }
                         } catch (java.net.SocketException e) {
-                            CameraDaemon.log("WS: Client disconnected (" + e.getMessage() + ")");
+                            SystemDaemon.log("WS: Client disconnected (" + e.getMessage() + ")");
                             break;
                         } catch (java.io.IOException e) {
-                            CameraDaemon.log("WS: Write error (" + e.getMessage() + ")");
+                            SystemDaemon.log("WS: Write error (" + e.getMessage() + ")");
                             break;
                         }
                     } else {
@@ -1111,12 +1111,12 @@ public class HttpServer {
                             out.write(new byte[]{(byte)0x89, 0x00});
                             out.flush();
                         } catch (Exception e) {
-                            CameraDaemon.log("WS: Ping failed, client gone");
+                            SystemDaemon.log("WS: Ping failed, client gone");
                             break;
                         }
                         
                         if (System.currentTimeMillis() - lastFrameTime > 60000) {
-                            CameraDaemon.log("WS: Idle timeout (60s) - closing");
+                            SystemDaemon.log("WS: Idle timeout (60s) - closing");
                             break;
                         }
                     }
@@ -1128,10 +1128,10 @@ public class HttpServer {
             }
             
             encoder.clearStreamCallback();
-            CameraDaemon.log("WS: Stream ended (" + frameCount + " frames sent)");
+            SystemDaemon.log("WS: Stream ended (" + frameCount + " frames sent)");
             
         } catch (Exception e) {
-            CameraDaemon.log("WS stream error: " + e.getMessage());
+            SystemDaemon.log("WS stream error: " + e.getMessage());
         } finally {
             try { client.close(); } catch (Exception e) {}
         }

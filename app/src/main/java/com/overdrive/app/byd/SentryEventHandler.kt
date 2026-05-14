@@ -1,7 +1,7 @@
 package com.overdrive.app.byd
 
 import com.overdrive.app.byd.radar.RadarConstants
-import com.overdrive.app.client.CameraDaemonClient
+import com.overdrive.app.client.SystemDaemonClient
 import com.overdrive.app.logging.LogManager
 import org.json.JSONObject
 
@@ -25,7 +25,7 @@ object SentryEventHandler : BydEventClient.EventListener {
     private val logger = LogManager.getInstance()
     
     // DaemonClient for camera control
-    var daemonClient: CameraDaemonClient? = null
+    var daemonClient: SystemDaemonClient? = null
     
     // Which cameras to record in sentry mode (default: all 4)
     var sentryCameras: Set<Int> = setOf(1, 2, 3, 4)
@@ -213,7 +213,7 @@ object SentryEventHandler : BydEventClient.EventListener {
         log("Starting sentry recording on cameras: $sentryCameras")
         isRecording = true
         
-        daemonClient?.startRecording(sentryCameras, false, object : CameraDaemonClient.ResponseCallback {
+        daemonClient?.startRecording(sentryCameras, false, object : SystemDaemonClient.ResponseCallback {
             override fun onResponse(response: JSONObject) {
                 val status = response.optString("status")
                 if (status == "ok") {
@@ -244,7 +244,7 @@ object SentryEventHandler : BydEventClient.EventListener {
         
         log("Stopping sentry recording...")
         
-        daemonClient?.stopRecording(sentryCameras, object : CameraDaemonClient.ResponseCallback {
+        daemonClient?.stopRecording(sentryCameras, object : SystemDaemonClient.ResponseCallback {
             override fun onResponse(response: JSONObject) {
                 log("Recording stopped: $response")
                 isRecording = false

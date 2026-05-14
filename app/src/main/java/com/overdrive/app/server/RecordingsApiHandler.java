@@ -2,7 +2,7 @@ package com.overdrive.app.server;
 
 import android.graphics.Bitmap;
 import android.media.MediaMetadataRetriever;
-import com.overdrive.app.daemon.CameraDaemon;
+import com.overdrive.app.daemon.SystemDaemon;
 import com.overdrive.app.storage.StorageManager;
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -208,7 +208,7 @@ public class RecordingsApiHandler {
                         }
                     }
                 } catch (Exception e) {
-                    CameraDaemon.log("Background thumb gen failed: " + e.getMessage());
+                    SystemDaemon.log("Background thumb gen failed: " + e.getMessage());
                 } finally {
                     pendingThumbs.remove(fn);
                 }
@@ -262,7 +262,7 @@ public class RecordingsApiHandler {
             
             return baos.toByteArray();
         } catch (Exception e) {
-            CameraDaemon.log("Thumbnail generation failed: " + e.getMessage());
+            SystemDaemon.log("Thumbnail generation failed: " + e.getMessage());
             return null;
         } finally {
             try {
@@ -422,7 +422,7 @@ public class RecordingsApiHandler {
                 cal.add(Calendar.DAY_OF_MONTH, 1);
                 filterEnd = cal.getTimeInMillis();
             } catch (Exception e) {
-                CameraDaemon.log("Invalid date filter: " + dateFilter);
+                SystemDaemon.log("Invalid date filter: " + dateFilter);
             }
         }
         

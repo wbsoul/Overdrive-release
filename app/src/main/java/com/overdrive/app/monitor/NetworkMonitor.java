@@ -9,7 +9,7 @@ import android.net.LinkAddress;
 import android.net.wifi.WifiInfo;
 import android.net.wifi.WifiManager;
 
-import com.overdrive.app.daemon.CameraDaemon;
+import com.overdrive.app.daemon.SystemDaemon;
 
 import org.json.JSONObject;
 
@@ -41,7 +41,7 @@ public class NetworkMonitor {
 
     public static void init(Context context) {
         appContext = context;
-        CameraDaemon.log("NetworkMonitor: init with context=" +
+        SystemDaemon.log("NetworkMonitor: init with context=" +
                 (context != null ? context.getClass().getSimpleName() : "null"));
         refresh();
     }
@@ -65,7 +65,7 @@ public class NetworkMonitor {
             ConnectivityManager cm = (ConnectivityManager)
                     appContext.getSystemService(Context.CONNECTIVITY_SERVICE);
             if (cm == null) {
-                CameraDaemon.log("NetworkMonitor: ConnectivityManager is null");
+                SystemDaemon.log("NetworkMonitor: ConnectivityManager is null");
                 return false;
             }
 
@@ -125,14 +125,14 @@ public class NetworkMonitor {
             // "Package android does not belong to 2000" — expected on DiLink 5.
             // Silent fallback to shell commands which work fine under UID 2000.
             if (!shellFallbackLogged) {
-                CameraDaemon.log("NetworkMonitor: Android APIs unavailable (UID 2000), using shell fallback");
+                SystemDaemon.log("NetworkMonitor: Android APIs unavailable (UID 2000), using shell fallback");
                 shellFallbackLogged = true;
             }
             return false;
         } catch (Exception e) {
             // Other unexpected errors — log once then go silent
             if (!shellFallbackLogged) {
-                CameraDaemon.log("NetworkMonitor: Android API error: " + e.getMessage() + " — using shell fallback");
+                SystemDaemon.log("NetworkMonitor: Android API error: " + e.getMessage() + " — using shell fallback");
                 shellFallbackLogged = true;
             }
             return false;
@@ -143,7 +143,7 @@ public class NetworkMonitor {
         try {
             WifiManager wm = (WifiManager) appContext.getSystemService(Context.WIFI_SERVICE);
             if (wm == null) {
-                CameraDaemon.log("NetworkMonitor: WifiManager is null");
+                SystemDaemon.log("NetworkMonitor: WifiManager is null");
                 wifiSsid = "WiFi";
                 return;
             }
@@ -166,7 +166,7 @@ public class NetworkMonitor {
             int rssi = info.getRssi();
             signalPercent = Math.max(0, Math.min(100, (rssi + 90) * 100 / 60));
         } catch (Exception e) {
-            CameraDaemon.log("NetworkMonitor: WifiInfo error: " + e.getMessage());
+            SystemDaemon.log("NetworkMonitor: WifiInfo error: " + e.getMessage());
             wifiSsid = "WiFi";
         }
     }
@@ -219,7 +219,7 @@ public class NetworkMonitor {
             signalPercent = -1;
             lastUpdate = System.currentTimeMillis();
         } catch (Exception e) {
-            CameraDaemon.log("NetworkMonitor: shell fallback error: " + e.getMessage());
+            SystemDaemon.log("NetworkMonitor: shell fallback error: " + e.getMessage());
         }
     }
 

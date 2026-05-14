@@ -15,7 +15,7 @@
 # ONLY keep class names and main() - everything else gets obfuscated
 # This hides internal method names like whitelistViaBruteForce -> a()
 
--keep class com.overdrive.app.daemon.CameraDaemon {
+-keep class com.overdrive.app.daemon.SystemDaemon {
     public static void main(java.lang.String[]);
 }
 -keep class com.overdrive.app.daemon.SentryDaemon {

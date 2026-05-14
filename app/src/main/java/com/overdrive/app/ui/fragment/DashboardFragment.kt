@@ -15,7 +15,7 @@ import androidx.fragment.app.Fragment
 import androidx.fragment.app.activityViewModels
 import androidx.navigation.fragment.findNavController
 import com.overdrive.app.auth.AuthManager
-import com.overdrive.app.client.CameraDaemonClient
+import com.overdrive.app.client.SystemDaemonClient
 import com.overdrive.app.ui.model.DaemonStatus
 import com.overdrive.app.ui.model.DaemonType
 import com.overdrive.app.ui.util.QrCodeGenerator
@@ -276,7 +276,7 @@ class DashboardFragment : Fragment() {
         // This ensures old JWTs are rejected immediately
         Thread {
             try {
-                val client = CameraDaemonClient()
+                val client = SystemDaemonClient()
                 if (client.connect()) {
                     val success = client.invalidateAuthCacheSync()
                     client.disconnect()

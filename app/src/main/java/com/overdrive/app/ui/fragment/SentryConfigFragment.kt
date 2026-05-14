@@ -40,6 +40,10 @@ class SentryConfigFragment : Fragment() {
     private lateinit var cbDetectPerson: Chip
     private lateinit var cbDetectCar: Chip
     private lateinit var cbDetectBike: Chip
+    private lateinit var switchNotifyNoObject: com.google.android.material.switchmaterial.SwitchMaterial
+    private lateinit var sliderConfPerson: Slider
+    private lateinit var sliderConfCar: Slider
+    private lateinit var sliderConfBike: Slider
     
     // Distance to minObjectSize mapping (SOTA: Quadrant-Relative 15% Rule)
     // These values are relative to QUADRANT height in 2x2 mosaic
@@ -176,6 +180,10 @@ class SentryConfigFragment : Fragment() {
         cbDetectPerson = view.findViewById(R.id.cbDetectPerson)
         cbDetectCar = view.findViewById(R.id.cbDetectCar)
         cbDetectBike = view.findViewById(R.id.cbDetectBike)
+        switchNotifyNoObject = view.findViewById(R.id.switchNotifyNoObject)
+        sliderConfPerson = view.findViewById(R.id.sliderConfPerson)
+        sliderConfCar = view.findViewById(R.id.sliderConfCar)
+        sliderConfBike = view.findViewById(R.id.sliderConfBike)
         
         // Recording
         sliderPreBuffer = view.findViewById(R.id.sliderPreBuffer)
@@ -274,6 +282,14 @@ class SentryConfigFragment : Fragment() {
         cbDetectPerson.setOnCheckedChangeListener { _, _ -> if (!isInitializing) markChanged() }
         cbDetectCar.setOnCheckedChangeListener { _, _ -> if (!isInitializing) markChanged() }
         cbDetectBike.setOnCheckedChangeListener { _, _ -> if (!isInitializing) markChanged() }
+        
+        // Notify if no object detected
+        switchNotifyNoObject.setOnCheckedChangeListener { _, _ -> if (!isInitializing) markChanged() }
+        
+        // Per-class confidence sliders
+        sliderConfPerson.addOnChangeListener { _, _, fromUser -> if (fromUser && !isInitializing) markChanged() }
+        sliderConfCar.addOnChangeListener { _, _, fromUser -> if (fromUser && !isInitializing) markChanged() }
+        sliderConfBike.addOnChangeListener { _, _, fromUser -> if (fromUser && !isInitializing) markChanged() }
         
         // Pre-buffer slider
         sliderPreBuffer.addOnChangeListener { _, value, fromUser ->
@@ -635,6 +651,10 @@ class SentryConfigFragment : Fragment() {
         viewModel.setDetectPerson(cbDetectPerson.isChecked)
         viewModel.setDetectCar(cbDetectCar.isChecked)
         viewModel.setDetectBike(cbDetectBike.isChecked)
+        viewModel.setNotifyIfNoObjectDetected(switchNotifyNoObject.isChecked)
+        viewModel.setMinConfidencePerson(sliderConfPerson.value / 100f)
+        viewModel.setMinConfidenceCar(sliderConfCar.value / 100f)
+        viewModel.setMinConfidenceBike(sliderConfBike.value / 100f)
         viewModel.setPreEventBuffer(sliderPreBuffer.value.toInt())
         viewModel.setPostEventBuffer(sliderPostBuffer.value.toInt())
         viewModel.setBitrate(bitrate)
@@ -880,6 +900,10 @@ class SentryConfigFragment : Fragment() {
         cbDetectPerson.isChecked = config.detectPerson
         cbDetectCar.isChecked = config.detectCar
         cbDetectBike.isChecked = config.detectBike
+        switchNotifyNoObject.isChecked = config.notifyIfNoObjectDetected
+        sliderConfPerson.value = (config.minConfidencePerson * 100f).coerceIn(0f, 100f)
+        sliderConfCar.value = (config.minConfidenceCar * 100f).coerceIn(0f, 100f)
+        sliderConfBike.value = (config.minConfidenceBike * 100f).coerceIn(0f, 100f)
         
         // Recording
         sliderPreBuffer.value = config.preEventBufferSeconds.toFloat().coerceIn(2f, 15f)

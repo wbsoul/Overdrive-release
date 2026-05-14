@@ -7,7 +7,7 @@ import android.os.StatFs
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
-import com.overdrive.app.client.CameraDaemonClient
+import com.overdrive.app.client.SystemDaemonClient
 import com.overdrive.app.logging.LogManager
 import com.overdrive.app.ui.util.PreferencesManager
 import org.json.JSONObject
@@ -22,7 +22,7 @@ class RecordingViewModel(app: Application) : AndroidViewModel(app) {
     }
     
     private val log = LogManager.getInstance()
-    private val daemonClient = CameraDaemonClient()
+    private val daemonClient = SystemDaemonClient()
     
     private val _isRecording = MutableLiveData(false)
     val isRecording: LiveData<Boolean> = _isRecording
@@ -77,7 +77,7 @@ class RecordingViewModel(app: Application) : AndroidViewModel(app) {
         
         log.info(TAG, "Starting recording for cameras: $cameras")
         
-        daemonClient.startRecording(cameras, false, object : CameraDaemonClient.ResponseCallback {
+        daemonClient.startRecording(cameras, false, object : SystemDaemonClient.ResponseCallback {
             override fun onResponse(response: JSONObject) {
                 val status = response.optString("status")
                 if (status == "ok") {
@@ -87,7 +87,7 @@ class RecordingViewModel(app: Application) : AndroidViewModel(app) {
                         _duration.value = 0
                         handler.post(durationUpdater)
                         
-                        val recording = CameraDaemonClient.parseRecordingCameras(response)
+                        val recording = SystemDaemonClient.parseRecordingCameras(response)
                         _recordingCameras.value = recording
                         log.info(TAG, "Recording started: $recording")
                     }
@@ -110,7 +110,7 @@ class RecordingViewModel(app: Application) : AndroidViewModel(app) {
         
         log.info(TAG, "Stopping recording...")
         
-        daemonClient.stopRecording(null, object : CameraDaemonClient.ResponseCallback {
+        daemonClient.stopRecording(null, object : SystemDaemonClient.ResponseCallback {
             override fun onResponse(response: JSONObject) {
                 handler.post {
                     _isRecording.value = false
@@ -136,10 +136,10 @@ class RecordingViewModel(app: Application) : AndroidViewModel(app) {
     }
     
     fun refreshRecordingStatus() {
-        daemonClient.getStatus(object : CameraDaemonClient.ResponseCallback {
+        daemonClient.getStatus(object : SystemDaemonClient.ResponseCallback {
             override fun onResponse(response: JSONObject) {
                 handler.post {
-                    val recording = CameraDaemonClient.parseRecordingCameras(response)
+                    val recording = SystemDaemonClient.parseRecordingCameras(response)
                     _recordingCameras.value = recording
                     _isRecording.value = recording.isNotEmpty()
                     

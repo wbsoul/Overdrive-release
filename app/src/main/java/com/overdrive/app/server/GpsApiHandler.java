@@ -1,6 +1,6 @@
 package com.overdrive.app.server;
 
-import com.overdrive.app.daemon.CameraDaemon;
+import com.overdrive.app.daemon.SystemDaemon;
 import com.overdrive.app.monitor.GpsMonitor;
 
 import org.json.JSONObject;
@@ -42,7 +42,7 @@ public class GpsApiHandler {
         
         // Auto-start GPS if not running
         if (!gps.isRunning()) {
-            CameraDaemon.log("GPS: Auto-starting GPS tracking");
+            SystemDaemon.log("GPS: Auto-starting GPS tracking");
             gps.start();
         }
         
@@ -51,7 +51,7 @@ public class GpsApiHandler {
         response.put("location", gps.getLocationJson());
         response.put("googleMapsUrl", gps.getGoogleMapsUrl());
         
-        CameraDaemon.log("GPS: Sending location - lat=" + gps.getLatitude() + 
+        SystemDaemon.log("GPS: Sending location - lat=" + gps.getLatitude() + 
                         ", lng=" + gps.getLongitude() + ", hasLocation=" + gps.hasLocation());
         
         HttpResponse.sendJson(out, response.toString());

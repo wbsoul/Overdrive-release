@@ -1,6 +1,6 @@
 package com.overdrive.app.manager
 
-import com.overdrive.app.client.CameraDaemonClient
+import com.overdrive.app.client.SystemDaemonClient
 import com.overdrive.app.config.ConfigManager
 import com.overdrive.app.config.StreamMode
 import com.overdrive.app.logging.LogManager
@@ -54,7 +54,7 @@ class StreamModeManager(
     fun syncWithDaemon() {
         Thread {
             try {
-                val client = CameraDaemonClient()
+                val client = SystemDaemonClient()
                 if (client.connect()) {
                     // Get daemon mode
                     val statusResponse = client.sendCommand("""{"cmd":"getStreamMode"}""")
@@ -82,7 +82,7 @@ class StreamModeManager(
      */
     private fun sendModeToDaemon(mode: StreamMode): Boolean {
         return try {
-            val client = CameraDaemonClient()
+            val client = SystemDaemonClient()
             if (client.connect()) {
                 val modeStr = mode.name.lowercase()
                 val response = client.sendCommand("""{"cmd":"setStreamMode","mode":"$modeStr"}""")
@@ -103,7 +103,7 @@ class StreamModeManager(
      */
     private fun getModeFromDaemon(): StreamMode? {
         return try {
-            val client = CameraDaemonClient()
+            val client = SystemDaemonClient()
             if (client.connect()) {
                 val response = client.sendCommand("""{"cmd":"getStreamMode"}""")
                 client.disconnect()

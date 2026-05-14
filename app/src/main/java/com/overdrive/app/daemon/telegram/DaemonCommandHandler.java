@@ -26,7 +26,7 @@ public class DaemonCommandHandler implements TelegramCommandHandler {
     // Daemon definitions: name -> [processName, className, displayName, startable]
     // startable: "yes" if can be started via app_process or shell, "no" if can't be started remotely
     private static final String[][] DAEMONS = {
-        {"camera", "byd_cam_daemon", "CameraDaemon", "Camera", "yes"},
+        {"camera", "byd_cam_daemon", "SystemDaemon", "Camera", "yes"},
         {"acc", "acc_sentry_daemon", "AccSentryDaemon", "ACC Sentry", "yes"},
         {"sentry", "sentry_daemon", "SentryDaemon", "Sentry", "yes"},
         {"telegram", "telegram_bot_daemon", "TelegramBotDaemon", "Telegram", "yes"},
@@ -218,7 +218,7 @@ public class DaemonCommandHandler implements TelegramCommandHandler {
     
     /**
      * Start daemon using the same flow as DaemonLauncher.kt.
-     * For CameraDaemon: deploys watchdog script with bmmcamera.jar, native libs, proxy args.
+     * For SystemDaemon: deploys watchdog script with bmmcamera.jar, native libs, proxy args.
      * For other daemons: uses the appropriate launch pattern.
      */
     private boolean startDaemon(String className, CommandContext ctx) {
@@ -232,8 +232,8 @@ public class DaemonCommandHandler implements TelegramCommandHandler {
         }
         apkPath = apkPath.trim();
         
-        if ("CameraDaemon".equals(className)) {
-            return startCameraDaemonWithWatchdog(apkPath, ctx);
+        if ("SystemDaemon".equals(className)) {
+            return startSystemDaemonWithWatchdog(apkPath, ctx);
         } else if ("AccSentryDaemon".equals(className)) {
             return startAccSentryDaemonWithWatchdog(apkPath, ctx);
         } else {
@@ -249,13 +249,13 @@ public class DaemonCommandHandler implements TelegramCommandHandler {
     }
     
     /**
-     * Replicates DaemonLauncher.launchCameraDaemonInternal() exactly.
+     * Replicates DaemonLauncher.launchSystemDaemonInternal() exactly.
      * Step 1: Kill old processes and clean up
      * Step 2: Write watchdog script with bmmcamera.jar, native libs, proxy args
      * Step 3: Launch watchdog script
      * Step 4: Verify daemon is running
      */
-    private boolean startCameraDaemonWithWatchdog(String apkPath, CommandContext ctx) {
+    private boolean startSystemDaemonWithWatchdog(String apkPath, CommandContext ctx) {
         String scriptPath = "/data/local/tmp/start_cam_daemon.sh";
         String logFile = "/data/local/tmp/cam_daemon.log";
         String processName = "byd_cam_daemon";
@@ -332,12 +332,12 @@ public class DaemonCommandHandler implements TelegramCommandHandler {
             "-Djava.library.path=" + nativeLibDir + ":/system/lib64:/vendor/lib64:/product/lib64:/odm/lib64 " +
             proxyArgs + "/system/bin " +
             "--nice-name=" + processName + " " +
-            "com.overdrive.app.daemon.CameraDaemon " +
+            "com.overdrive.app.daemon.SystemDaemon " +
             outputDir + " " + nativeLibDir + " >> \"$LOG_FILE\" 2>&1";
         
         // Write script line by line using echo (same approach as DaemonLauncher)
         ctx.execShell("echo '#!/system/bin/sh' > " + scriptPath);
-        ctx.execShell("echo '# CameraDaemon Watchdog Script' >> " + scriptPath);
+        ctx.execShell("echo '# SystemDaemon Watchdog Script' >> " + scriptPath);
         ctx.execShell("echo 'LOG_FILE=\"" + logFile + "\"' >> " + scriptPath);
         ctx.execShell("echo 'PIDFILE=/data/local/tmp/cam_watchdog.pid' >> " + scriptPath);
         ctx.execShell("echo '' >> " + scriptPath);
@@ -358,7 +358,7 @@ public class DaemonCommandHandler implements TelegramCommandHandler {
         ctx.execShell("echo '    rm -f \"$PIDFILE\"' >> " + scriptPath);
         ctx.execShell("echo '    exit 0' >> " + scriptPath);
         ctx.execShell("echo '  fi' >> " + scriptPath);
-        ctx.execShell("echo '  echo \"[$(date)] Starting CameraDaemon...\" >> \"$LOG_FILE\"' >> " + scriptPath);
+        ctx.execShell("echo '  echo \"[$(date)] Starting SystemDaemon...\" >> \"$LOG_FILE\"' >> " + scriptPath);
         ctx.execShell("echo '' >> " + scriptPath);
         // The app_process line — write via heredoc to avoid escaping hell
         ctx.execShell("cat >> " + scriptPath + " << 'EOFLINE'\n  " + appProcessCmd + "\nEOFLINE");
@@ -394,7 +394,7 @@ public class DaemonCommandHandler implements TelegramCommandHandler {
         // Step 4: Verify daemon is running
         try { Thread.sleep(2000); } catch (InterruptedException ignored) {}
         boolean running = isDaemonRunning(processName, ctx);
-        ctx.log("CameraDaemon " + (running ? "started with watchdog ✓" : "FAILED to start"));
+        ctx.log("SystemDaemon " + (running ? "started with watchdog ✓" : "FAILED to start"));
         return running;
     }
     

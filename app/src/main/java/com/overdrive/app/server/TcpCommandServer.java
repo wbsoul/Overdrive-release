@@ -1,6 +1,6 @@
 package com.overdrive.app.server;
 
-import com.overdrive.app.daemon.CameraDaemon;
+import com.overdrive.app.daemon.SystemDaemon;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -29,9 +29,9 @@ public class TcpCommandServer {
     }
 
     public void start() {
-        CameraDaemon.log("TCP server starting on port " + port);
+        SystemDaemon.log("TCP server starting on port " + port);
         
-        while (running && CameraDaemon.isRunning()) {
+        while (running && SystemDaemon.isRunning()) {
             try {
                 if (serverSocket != null && !serverSocket.isClosed()) {
                     try { serverSocket.close(); } catch (Exception e) {}
@@ -39,38 +39,38 @@ public class TcpCommandServer {
                 
                 serverSocket = new ServerSocket(port, 5, InetAddress.getByName("127.0.0.1"));
                 serverSocket.setReuseAddress(true);
-                CameraDaemon.log("TCP server listening on 127.0.0.1:" + port);
+                SystemDaemon.log("TCP server listening on 127.0.0.1:" + port);
 
-                while (running && CameraDaemon.isRunning() && !serverSocket.isClosed()) {
+                while (running && SystemDaemon.isRunning() && !serverSocket.isClosed()) {
                     try {
                         Socket client = serverSocket.accept();
-                        CameraDaemon.log("TCP client connected: " + client.getRemoteSocketAddress());
+                        SystemDaemon.log("TCP client connected: " + client.getRemoteSocketAddress());
                         new Thread(() -> handleClient(client), "TcpClient-" + System.currentTimeMillis()).start();
                     } catch (java.net.SocketException e) {
                         if (running) {
-                            CameraDaemon.log("WARN: TCP socket error: " + e.getMessage());
+                            SystemDaemon.log("WARN: TCP socket error: " + e.getMessage());
                         }
                         break;
                     }
                 }
                 
                 if (running) {
-                    CameraDaemon.log("TCP server restarting...");
+                    SystemDaemon.log("TCP server restarting...");
                     Thread.sleep(2000);
                 }
                 
             } catch (java.net.BindException e) {
-                CameraDaemon.log("ERROR: TCP port " + port + " in use, retrying...");
+                SystemDaemon.log("ERROR: TCP port " + port + " in use, retrying...");
                 try { Thread.sleep(5000); } catch (InterruptedException ie) {}
             } catch (Exception e) {
-                CameraDaemon.log("ERROR: TCP server error: " + e.getMessage());
+                SystemDaemon.log("ERROR: TCP server error: " + e.getMessage());
                 if (running) {
                     try { Thread.sleep(3000); } catch (InterruptedException ie) {}
                 }
             }
         }
         
-        CameraDaemon.log("TCP server stopped");
+        SystemDaemon.log("TCP server stopped");
     }
 
     public void stop() {
@@ -87,7 +87,7 @@ public class TcpCommandServer {
 
             String line;
             while ((line = reader.readLine()) != null) {
-                CameraDaemon.log("TCP received: " + line);
+                SystemDaemon.log("TCP received: " + line);
                 
                 try {
                     JSONObject cmd = new JSONObject(line);
@@ -101,7 +101,7 @@ public class TcpCommandServer {
                 }
             }
         } catch (Exception e) {
-            CameraDaemon.log("TCP client disconnected: " + e.getMessage());
+            SystemDaemon.log("TCP client disconnected: " + e.getMessage());
         } finally {
             try { client.close(); } catch (Exception e) {}
         }
@@ -111,7 +111,7 @@ public class TcpCommandServer {
         String action = cmd.optString("cmd", "");
         JSONObject response = new JSONObject();
         
-        CameraDaemon.log("Processing command: " + action);
+        SystemDaemon.log("Processing command: " + action);
 
         switch (action) {
             case "start":
@@ -121,7 +121,7 @@ public class TcpCommandServer {
                 if (camsToStart != null) {
                     for (int i = 0; i < camsToStart.length(); i++) {
                         int camId = camsToStart.getInt(i);
-                        CameraDaemon.startCamera(camId, enableStream, false);
+                        SystemDaemon.startCamera(camId, enableStream, false);
                     }
                 }
                 response.put("status", "ok");
@@ -134,10 +134,10 @@ public class TcpCommandServer {
                 JSONArray camsToStop = cmd.optJSONArray("cameras");
                 if (camsToStop != null) {
                     for (int i = 0; i < camsToStop.length(); i++) {
-                        CameraDaemon.stopCamera(camsToStop.getInt(i), forceStop);
+                        SystemDaemon.stopCamera(camsToStop.getInt(i), forceStop);
                     }
                 } else {
-                    CameraDaemon.stopAllCameras(forceStop);
+                    SystemDaemon.stopAllCameras(forceStop);
                 }
                 response.put("status", "ok");
                 response.put("recording", getRecordingCameras());
@@ -160,7 +160,7 @@ public class TcpCommandServer {
             case "getFrame":
                 int frameViewId = cmd.optInt("camera", 1);
                 // GPU pipeline: get frame from GPU camera extractor
-                com.overdrive.app.surveillance.GpuSurveillancePipeline gpuPipeline = CameraDaemon.getGpuPipeline();
+                com.overdrive.app.surveillance.GpuSurveillancePipeline gpuPipeline = SystemDaemon.getGpuPipeline();
                 if (gpuPipeline != null && gpuPipeline.getCamera() != null) {
                     byte[] jpegFrame = gpuPipeline.getCamera().getLatestJpegFrame(frameViewId);
                     if (jpegFrame != null) {
@@ -180,14 +180,14 @@ public class TcpCommandServer {
 
             case "setOutput":
                 response.put("status", "ok");
-                response.put("outputDir", CameraDaemon.getOutputDir());
+                response.put("outputDir", SystemDaemon.getOutputDir());
                 break;
 
             case "shutdown":
                 response.put("status", "ok");
                 new Thread(() -> {
                     try { Thread.sleep(300); } catch (InterruptedException e) {}
-                    CameraDaemon.shutdown();
+                    SystemDaemon.shutdown();
                 }, "ShutdownThread").start();
                 break;
 
@@ -197,11 +197,11 @@ public class TcpCommandServer {
                 JSONArray streamsToStart = cmd.optJSONArray("cameras");
                 if (streamsToStart != null) {
                     for (int i = 0; i < streamsToStart.length(); i++) {
-                        CameraDaemon.startStreaming(streamsToStart.getInt(i));
+                        SystemDaemon.startStreaming(streamsToStart.getInt(i));
                     }
                 } else {
                     // Start all if no cameras specified
-                    CameraDaemon.startAllStreaming();
+                    SystemDaemon.startAllStreaming();
                 }
                 response.put("status", "ok");
                 response.put("streaming", getStreamingCameras());
@@ -211,10 +211,10 @@ public class TcpCommandServer {
                 JSONArray streamsToStop = cmd.optJSONArray("cameras");
                 if (streamsToStop != null) {
                     for (int i = 0; i < streamsToStop.length(); i++) {
-                        CameraDaemon.stopStreaming(streamsToStop.getInt(i));
+                        SystemDaemon.stopStreaming(streamsToStop.getInt(i));
                     }
                 } else {
-                    CameraDaemon.stopAllStreaming();
+                    SystemDaemon.stopAllStreaming();
                 }
                 response.put("status", "ok");
                 response.put("streaming", getStreamingCameras());
@@ -228,7 +228,7 @@ public class TcpCommandServer {
 
             case "streamStatus":
                 response.put("status", "ok");
-                Map<String, Object> streamInfo = CameraDaemon.getStreamingStatus();
+                Map<String, Object> streamInfo = SystemDaemon.getStreamingStatus();
                 response.put("enabled", streamInfo.get("enabled"));
                 response.put("deviceId", streamInfo.get("deviceId"));
                 response.put("streaming", getStreamingCameras());
@@ -240,9 +240,9 @@ public class TcpCommandServer {
             case "setStreamMode":
                 String mode = cmd.optString("mode", "");
                 if (mode.equals("private") || mode.equals("public")) {
-                    CameraDaemon.setStreamMode(mode);
+                    SystemDaemon.setStreamMode(mode);
                     response.put("status", "ok");
-                    response.put("mode", CameraDaemon.getStreamMode());
+                    response.put("mode", SystemDaemon.getStreamMode());
                     response.put("message", "Stream mode set to " + mode + " (both use tunnel URLs now)");
                 } else {
                     response.put("status", "error");
@@ -252,8 +252,8 @@ public class TcpCommandServer {
 
             case "getStreamMode":
                 response.put("status", "ok");
-                response.put("mode", CameraDaemon.getStreamMode());
-                response.put("isPublic", CameraDaemon.isPublicMode());
+                response.put("mode", SystemDaemon.getStreamMode());
+                response.put("isPublic", SystemDaemon.isPublicMode());
                 break;
 
             // ==================== SURVEILLANCE COMMANDS ====================
@@ -261,30 +261,30 @@ public class TcpCommandServer {
             case "enableSurveillance":
                 com.overdrive.app.config.UnifiedConfigManager.setSurveillanceEnabled(true);
                 if (!com.overdrive.app.monitor.AccMonitor.isAccOn()) {
-                    CameraDaemon.enableSurveillance();
+                    SystemDaemon.enableSurveillance();
                 }
                 response.put("status", "ok");
-                response.put("surveillance", CameraDaemon.getSurveillanceStatus());
+                response.put("surveillance", SystemDaemon.getSurveillanceStatus());
                 break;
 
             case "disableSurveillance":
-                CameraDaemon.disableSurveillance();
+                SystemDaemon.disableSurveillance();
                 com.overdrive.app.config.UnifiedConfigManager.setSurveillanceEnabled(false);
                 response.put("status", "ok");
-                response.put("surveillance", CameraDaemon.getSurveillanceStatus());
+                response.put("surveillance", SystemDaemon.getSurveillanceStatus());
                 break;
 
             case "surveillanceStatus":
                 response.put("status", "ok");
-                response.put("surveillance", CameraDaemon.getSurveillanceStatus());
+                response.put("surveillance", SystemDaemon.getSurveillanceStatus());
                 break;
 
             case "setAccState":
                 boolean accOff = cmd.optBoolean("accOff", false);
-                CameraDaemon.onAccStateChanged(accOff);
+                SystemDaemon.onAccStateChanged(accOff);
                 response.put("status", "ok");
                 response.put("accOff", accOff);
-                response.put("surveillance", CameraDaemon.getSurveillanceStatus());
+                response.put("surveillance", SystemDaemon.getSurveillanceStatus());
                 break;
             
             // ==================== RECORDING MODE COMMANDS ====================
@@ -292,9 +292,9 @@ public class TcpCommandServer {
             case "setRecordingMode":
                 String recordingMode = cmd.optString("mode", "");
                 if (!recordingMode.isEmpty()) {
-                    CameraDaemon.setRecordingMode(recordingMode);
+                    SystemDaemon.setRecordingMode(recordingMode);
                     response.put("status", "ok");
-                    response.put("mode", CameraDaemon.getRecordingMode());
+                    response.put("mode", SystemDaemon.getRecordingMode());
                 } else {
                     response.put("status", "error");
                     response.put("message", "No mode specified");
@@ -303,7 +303,7 @@ public class TcpCommandServer {
             
             case "getRecordingMode":
                 response.put("status", "ok");
-                response.put("mode", CameraDaemon.getRecordingMode());
+                response.put("mode", SystemDaemon.getRecordingMode());
                 break;
 
             // ==================== QUALITY SETTINGS COMMANDS ====================
@@ -312,7 +312,7 @@ public class TcpCommandServer {
                 // Set recording bitrate: LOW (2Mbps), MEDIUM (3Mbps), HIGH (6Mbps)
                 String bitrateValue = cmd.optString("value", "").toUpperCase();
                 if (bitrateValue.equals("LOW") || bitrateValue.equals("MEDIUM") || bitrateValue.equals("HIGH")) {
-                    CameraDaemon.setRecordingBitrate(bitrateValue);
+                    SystemDaemon.setRecordingBitrate(bitrateValue);
                     HttpServer.setRecordingBitrate(bitrateValue);
                     response.put("status", "ok");
                     response.put("bitrate", bitrateValue);
@@ -327,7 +327,7 @@ public class TcpCommandServer {
                 // Set recording codec: H264 or H265
                 String codecValue = cmd.optString("value", "").toUpperCase();
                 if (codecValue.equals("H264") || codecValue.equals("H265")) {
-                    CameraDaemon.setRecordingCodec(codecValue);
+                    SystemDaemon.setRecordingCodec(codecValue);
                     HttpServer.setRecordingCodec(codecValue);
                     response.put("status", "ok");
                     response.put("codec", codecValue);
@@ -354,7 +354,7 @@ public class TcpCommandServer {
                         response.put("storageType", recStorageTypeValue);
                         response.put("path", storageManager.getRecordingsPath());
                         response.put("message", "Recordings storage set to " + recStorageTypeValue);
-                        CameraDaemon.log("Recordings storage type set to " + recStorageTypeValue + " via TCP IPC");
+                        SystemDaemon.log("Recordings storage type set to " + recStorageTypeValue + " via TCP IPC");
                     } else {
                         response.put("status", "error");
                         response.put("message", "SD card not available");
@@ -375,7 +375,7 @@ public class TcpCommandServer {
                     response.put("status", "ok");
                     response.put("limitMb", recLimitStorage.getRecordingsLimitMb());
                     response.put("message", "Recordings limit set to " + recLimitStorage.getRecordingsLimitMb() + " MB");
-                    CameraDaemon.log("Recordings limit set to " + recLimitStorage.getRecordingsLimitMb() + " MB via TCP IPC");
+                    SystemDaemon.log("Recordings limit set to " + recLimitStorage.getRecordingsLimitMb() + " MB via TCP IPC");
                     // Trigger async cleanup
                     new Thread(() -> recLimitStorage.ensureRecordingsSpace(0), "RecLimitCleanup").start();
                 } else {
@@ -410,7 +410,7 @@ public class TcpCommandServer {
                         }
                     }
                 } catch (Exception e) {
-                    CameraDaemon.log("getQualitySettings: Could not read unified config: " + e.getMessage());
+                    SystemDaemon.log("getQualitySettings: Could not read unified config: " + e.getMessage());
                     // Fall back to HttpServer static vars
                     bitrate = HttpServer.getRecordingBitrate();
                     codec = HttpServer.getRecordingCodec();
@@ -431,7 +431,7 @@ public class TcpCommandServer {
                 // Invalidate cached auth state - called when app regenerates token
                 // This forces daemon to reload auth state from file on next JWT validation
                 com.overdrive.app.auth.AuthManager.invalidateCache();
-                CameraDaemon.log("Auth cache invalidated via IPC");
+                SystemDaemon.log("Auth cache invalidated via IPC");
                 response.put("status", "ok");
                 response.put("message", "Auth cache invalidated");
                 break;
@@ -439,7 +439,7 @@ public class TcpCommandServer {
             case "shell":
                 // Execute shell command (used by SentryDaemon to run commands as UID 2000)
                 String shellCmd = cmd.optString("command", "");
-                CameraDaemon.log("Shell command received: " + shellCmd);
+                SystemDaemon.log("Shell command received: " + shellCmd);
                 if (!shellCmd.isEmpty()) {
                     try {
                         Process process = Runtime.getRuntime().exec(new String[]{"sh", "-c", shellCmd});
@@ -463,9 +463,9 @@ public class TcpCommandServer {
                         response.put("output", output.toString().trim());
                         response.put("stderr", errOutput.toString().trim());
                         response.put("exitCode", exitCode);
-                        CameraDaemon.log("Shell command completed: exitCode=" + exitCode + ", output=" + output.toString().trim());
+                        SystemDaemon.log("Shell command completed: exitCode=" + exitCode + ", output=" + output.toString().trim());
                     } catch (Exception e) {
-                        CameraDaemon.log("Shell command failed: " + e.getMessage());
+                        SystemDaemon.log("Shell command failed: " + e.getMessage());
                         response.put("status", "error");
                         response.put("message", "Shell exec failed: " + e.getMessage());
                     }
@@ -488,7 +488,7 @@ public class TcpCommandServer {
     public static JSONArray getRecordingCameras() {
         JSONArray arr = new JSONArray();
         // GPU pipeline: Only show as recording if in recording mode AND actually recording
-        com.overdrive.app.surveillance.GpuSurveillancePipeline pipeline = CameraDaemon.getGpuPipeline();
+        com.overdrive.app.surveillance.GpuSurveillancePipeline pipeline = SystemDaemon.getGpuPipeline();
         if (pipeline != null && pipeline.isRecordingMode() && pipeline.isRecording()) {
             // Mosaic recording = all 4 cameras
             arr.put(1);
@@ -502,7 +502,7 @@ public class TcpCommandServer {
     public static JSONArray getViewOnlyCameras() {
         JSONArray arr = new JSONArray();
         // GPU pipeline: Show as viewing if running but not in recording mode
-        com.overdrive.app.surveillance.GpuSurveillancePipeline pipeline = CameraDaemon.getGpuPipeline();
+        com.overdrive.app.surveillance.GpuSurveillancePipeline pipeline = SystemDaemon.getGpuPipeline();
         if (pipeline != null && pipeline.isRunning() && !pipeline.isRecordingMode()) {
             // Viewing all 4 cameras
             arr.put(1);
@@ -516,7 +516,7 @@ public class TcpCommandServer {
     public static JSONArray getActiveCameras() {
         JSONArray arr = new JSONArray();
         // GPU pipeline: all 4 cameras active together
-        if (CameraDaemon.isSurveillanceActive()) {
+        if (SystemDaemon.isSurveillanceActive()) {
             arr.put(1);
             arr.put(2);
             arr.put(3);
@@ -527,7 +527,7 @@ public class TcpCommandServer {
 
     public static JSONArray getStreamingCameras() {
         JSONArray arr = new JSONArray();
-        for (Integer camId : CameraDaemon.getStreamingCameras()) {
+        for (Integer camId : SystemDaemon.getStreamingCameras()) {
             arr.put(camId);
         }
         return arr;

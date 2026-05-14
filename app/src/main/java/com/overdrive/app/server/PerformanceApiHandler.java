@@ -547,7 +547,7 @@ public class PerformanceApiHandler {
                     switch (cat) {
                         case "trips": {
                             com.overdrive.app.trips.TripAnalyticsManager mgr =
-                                com.overdrive.app.daemon.CameraDaemon.getTripAnalyticsManager();
+                                com.overdrive.app.daemon.SystemDaemon.getTripAnalyticsManager();
                             // Refuse if a trip is being recorded right now —
                             // wiping mid-trip would leave the in-memory
                             // TripBuilder writing to a freshly-empty DB and

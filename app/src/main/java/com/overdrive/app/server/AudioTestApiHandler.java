@@ -5,7 +5,7 @@ import android.media.ToneGenerator;
 import android.speech.tts.TextToSpeech;
 
 import com.overdrive.app.byd.BydDataCollector;
-import com.overdrive.app.daemon.CameraDaemon;
+import com.overdrive.app.daemon.SystemDaemon;
 import com.overdrive.app.logging.DaemonLogger;
 
 import org.json.JSONObject;
@@ -241,7 +241,7 @@ public class AudioTestApiHandler {
      * Play TTS via Android TextToSpeech on STREAM_MUSIC.
      */
     private static boolean playTts(String text, int timeoutMs) {
-        android.content.Context ctx = CameraDaemon.getAppContext();
+        android.content.Context ctx = SystemDaemon.getAppContext();
         if (ctx == null) {
             logger.warn("playTts: no context available");
             return false;

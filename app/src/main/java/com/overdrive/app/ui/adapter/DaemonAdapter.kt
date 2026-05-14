@@ -186,7 +186,7 @@ class DaemonAdapter(
         
         private fun getDaemonDisplayName(type: DaemonType): String {
             return when (type) {
-                DaemonType.CAMERA_DAEMON -> "📷 Camera Daemon"
+                DaemonType.CAMERA_DAEMON -> "📷 System Daemon"
                 DaemonType.SENTRY_DAEMON -> "🛡️ Sentry Daemon"
                 DaemonType.ACC_SENTRY_DAEMON -> "🚗 ACC Sentry"
                 DaemonType.SINGBOX_PROXY -> "🔗 Sing-box Proxy"

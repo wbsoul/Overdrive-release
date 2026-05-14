@@ -299,7 +299,7 @@ object UnifiedConfigManager {
             }
 
             // World-readable AND world-writable: this file is shared across
-            // UID 2000 (CameraDaemon, AccSentryDaemon) and UID 10xxx (app UI
+            // UID 2000 (SystemDaemon, AccSentryDaemon) and UID 10xxx (app UI
             // process). Tightening to owner-only would prevent cross-UID
             // writes — whichever UID creates the file first becomes the
             // owner, and all other processes lose write access.

@@ -209,7 +209,7 @@ android {
         minSdk = 25
         targetSdk = 25
         versionCode = 1
-        versionName = "1.0"
+        versionName = "poc 1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         
         // Note: abiFilters removed - using splits.abi instead for size optimization
@@ -269,14 +269,14 @@ android {
             
             signingConfig = signingConfigs.getByName("release")
             
-            // Update channel: "alpha" for release builds (checks alpha tag on GitHub)
-            buildConfigField("String", "UPDATE_CHANNEL", "\"alpha\"")
+            // Update channel: "poc" for release builds (checks poc tag on GitHub)
+            buildConfigField("String", "UPDATE_CHANNEL", "\"poc\"")
         }
         debug {
             isMinifyEnabled = false
             
-            // Debug builds also check alpha channel for updates
-            buildConfigField("String", "UPDATE_CHANNEL", "\"alpha\"")
+            // Debug builds also check poc channel for updates
+            buildConfigField("String", "UPDATE_CHANNEL", "\"poc\"")
         }
     }
     

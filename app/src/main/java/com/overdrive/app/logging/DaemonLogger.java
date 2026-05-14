@@ -25,12 +25,12 @@ import java.util.concurrent.ConcurrentHashMap;
  * Usage:
  * ```java
  * // Get logger for a specific daemon
- * DaemonLogger logger = DaemonLogger.getInstance("CameraDaemon");
+ * DaemonLogger logger = DaemonLogger.getInstance("SystemDaemon");
  * logger.info("Camera started");
  * logger.error("Failed to start", exception);
  * 
  * // Or use static methods with tag
- * DaemonLogger.log("CameraDaemon", "Camera started");
+ * DaemonLogger.log("SystemDaemon", "Camera started");
  * ```
  */
 public class DaemonLogger {

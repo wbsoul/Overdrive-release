@@ -3,7 +3,7 @@ package com.overdrive.app.daemon.camera
 /**
  * Camera configuration constants.
  * 
- * Extracted from CameraDaemon for better separation of concerns.
+ * Extracted from SystemDaemon for better separation of concerns.
  */
 object CameraConfiguration {
     

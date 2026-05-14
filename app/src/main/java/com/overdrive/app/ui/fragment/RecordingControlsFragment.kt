@@ -9,7 +9,7 @@ import android.widget.Toast
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.activityViewModels
 import com.overdrive.app.ui.viewmodel.RecordingViewModel
-import com.overdrive.app.client.CameraDaemonClient
+import com.overdrive.app.client.SystemDaemonClient
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.button.MaterialButtonToggleGroup
 import com.overdrive.app.R
@@ -80,7 +80,7 @@ class RecordingControlsFragment : Fragment() {
     private var btnCdrCleanupNow: MaterialButton? = null
     
     // Daemon client for sending settings to daemon
-    private var daemonClient: CameraDaemonClient? = null
+    private var daemonClient: SystemDaemonClient? = null
     private val executor = Executors.newSingleThreadExecutor()
     
     // Track pending changes (not yet applied)
@@ -1018,9 +1018,9 @@ class RecordingControlsFragment : Fragment() {
         tvPostRecordValue.text = "$postRecord seconds"
     }
     
-    private fun getOrCreateDaemonClient(): CameraDaemonClient? {
+    private fun getOrCreateDaemonClient(): SystemDaemonClient? {
         if (daemonClient == null || !daemonClient!!.isConnected) {
-            daemonClient = CameraDaemonClient()
+            daemonClient = SystemDaemonClient()
             if (!daemonClient!!.connect()) {
                 daemonClient = null
             }

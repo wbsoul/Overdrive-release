@@ -1,6 +1,6 @@
 package com.overdrive.app.server;
 
-import com.overdrive.app.daemon.CameraDaemon;
+import com.overdrive.app.daemon.SystemDaemon;
 import com.overdrive.app.surveillance.GpuPipelineConfig;
 import com.overdrive.app.surveillance.GpuSurveillancePipeline;
 
@@ -64,9 +64,9 @@ public class StreamingApiHandler {
     }
     
     private static void handleEnableStreaming(OutputStream out) throws Exception {
-        GpuSurveillancePipeline pipeline = CameraDaemon.getGpuPipeline();
+        GpuSurveillancePipeline pipeline = SystemDaemon.getGpuPipeline();
         
-        CameraDaemon.log("handleEnableStreaming: pipeline=" + (pipeline != null) + 
+        SystemDaemon.log("handleEnableStreaming: pipeline=" + (pipeline != null) + 
                         ", running=" + (pipeline != null && pipeline.isRunning()));
         
         if (pipeline == null) {
@@ -79,21 +79,21 @@ public class StreamingApiHandler {
         // frames — see handleStreamViewMode for the same rationale.
         if (!pipeline.isRunning()) {
             try {
-                CameraDaemon.log("handleEnableStreaming: warming up AVC HAL before pipeline cold start");
+                SystemDaemon.log("handleEnableStreaming: warming up AVC HAL before pipeline cold start");
                 com.overdrive.app.camera.AvcHalWarmup warmup = new com.overdrive.app.camera.AvcHalWarmup();
                 warmup.warmupAndWait();
-                CameraDaemon.log("handleEnableStreaming: auto-starting pipeline for streaming");
+                SystemDaemon.log("handleEnableStreaming: auto-starting pipeline for streaming");
                 pipeline.start();
                 Thread.sleep(500);
             } catch (Exception e) {
-                CameraDaemon.log("handleEnableStreaming: failed to start pipeline - " + e.getMessage());
+                SystemDaemon.log("handleEnableStreaming: failed to start pipeline - " + e.getMessage());
                 HttpResponse.sendJsonError(out, "Failed to start pipeline: " + e.getMessage());
                 return;
             }
         }
         
         if (pipeline.isStreamingEnabled()) {
-            CameraDaemon.log("handleEnableStreaming: already enabled");
+            SystemDaemon.log("handleEnableStreaming: already enabled");
             JSONObject response = new JSONObject();
             response.put("success", true);
             response.put("message", "Streaming already enabled");
@@ -104,10 +104,10 @@ public class StreamingApiHandler {
         
         try {
             GpuPipelineConfig.StreamingQuality q = GpuPipelineConfig.StreamingQuality.fromString(streamingQuality);
-            CameraDaemon.log("handleEnableStreaming: quality=" + q.displayName);
+            SystemDaemon.log("handleEnableStreaming: quality=" + q.displayName);
             pipeline.enableStreaming(q.width, q.height, q.fps, q.bitrate);
             
-            CameraDaemon.log("handleEnableStreaming: success");
+            SystemDaemon.log("handleEnableStreaming: success");
             JSONObject response = new JSONObject();
             response.put("success", true);
             response.put("message", "Streaming enabled");
@@ -119,13 +119,13 @@ public class StreamingApiHandler {
             HttpResponse.sendJson(out, response.toString());
             
         } catch (Exception e) {
-            CameraDaemon.log("handleEnableStreaming: error - " + e.getMessage());
+            SystemDaemon.log("handleEnableStreaming: error - " + e.getMessage());
             HttpResponse.sendJsonError(out, e.getMessage());
         }
     }
     
     private static void handleDisableStreaming(OutputStream out) throws Exception {
-        GpuSurveillancePipeline pipeline = CameraDaemon.getGpuPipeline();
+        GpuSurveillancePipeline pipeline = SystemDaemon.getGpuPipeline();
         
         if (pipeline == null) {
             HttpResponse.sendJsonError(out, "Pipeline not available");
@@ -141,7 +141,7 @@ public class StreamingApiHandler {
     }
     
     private static void sendStreamStatus(OutputStream out) throws Exception {
-        GpuSurveillancePipeline pipeline = CameraDaemon.getGpuPipeline();
+        GpuSurveillancePipeline pipeline = SystemDaemon.getGpuPipeline();
         
         JSONObject response = new JSONObject();
         response.put("pipelineRunning", pipeline != null && pipeline.isRunning());
@@ -159,7 +159,7 @@ public class StreamingApiHandler {
     }
     
     private static void sendStreamQualityOptions(OutputStream out) throws Exception {
-        CameraDaemon.log("sendStreamQualityOptions: current=" + streamingQuality);
+        SystemDaemon.log("sendStreamQualityOptions: current=" + streamingQuality);
         JSONObject response = new JSONObject();
         response.put("success", true);
         response.put("current", streamingQuality);
@@ -185,12 +185,12 @@ public class StreamingApiHandler {
         GpuPipelineConfig.StreamingQuality newQuality = GpuPipelineConfig.StreamingQuality.fromString(quality);
         
         streamingQuality = newQuality.name();
-        CameraDaemon.setStreamingQuality(quality);
+        SystemDaemon.setStreamingQuality(quality);
         
         // Save quality preference — it will be applied on next stream start.
         // Don't restart the active stream to avoid disrupting the live view.
         // The /ws handler applies the quality when the client reconnects.
-        CameraDaemon.log("Streaming quality set to: " + newQuality.displayName);
+        SystemDaemon.log("Streaming quality set to: " + newQuality.displayName);
         
         JSONObject response = new JSONObject();
         response.put("success", true);
@@ -204,7 +204,7 @@ public class StreamingApiHandler {
     }
     
     private static void handleStreamViewMode(OutputStream out, int viewMode) throws Exception {
-        GpuSurveillancePipeline pipeline = CameraDaemon.getGpuPipeline();
+        GpuSurveillancePipeline pipeline = SystemDaemon.getGpuPipeline();
         
         if (pipeline == null) {
             HttpResponse.sendJsonError(out, "Pipeline not available");
@@ -228,10 +228,10 @@ public class StreamingApiHandler {
         // and com.byd.avc must already be alive.
         if (!pipeline.isRunning()) {
             try {
-                CameraDaemon.log("handleStreamViewMode: warming up AVC HAL before pipeline cold start");
+                SystemDaemon.log("handleStreamViewMode: warming up AVC HAL before pipeline cold start");
                 com.overdrive.app.camera.AvcHalWarmup warmup = new com.overdrive.app.camera.AvcHalWarmup();
                 warmup.warmupAndWait();   // Blocks ~4s; safe — runs on the HTTP worker thread
-                CameraDaemon.log("handleStreamViewMode: auto-starting pipeline");
+                SystemDaemon.log("handleStreamViewMode: auto-starting pipeline");
                 pipeline.start();
                 Thread.sleep(500);
             } catch (Exception e) {
@@ -243,7 +243,7 @@ public class StreamingApiHandler {
         // Enable streaming first if not enabled
         if (!pipeline.isStreamingEnabled()) {
             try {
-                CameraDaemon.log("Enabling streaming before setting view mode");
+                SystemDaemon.log("Enabling streaming before setting view mode");
                 GpuPipelineConfig.StreamingQuality q = GpuPipelineConfig.StreamingQuality.fromString(streamingQuality);
                 pipeline.enableStreaming(q.width, q.height, q.fps, q.bitrate);
                 Thread.sleep(500);
@@ -256,7 +256,7 @@ public class StreamingApiHandler {
         pipeline.setStreamViewMode(viewMode);
         
         String[] modeNames = {"Mosaic", "Front", "Right", "Rear", "Left", "Raw"};
-        CameraDaemon.log("Stream view mode set to: " + (viewMode < modeNames.length ? modeNames[viewMode] : "Unknown"));
+        SystemDaemon.log("Stream view mode set to: " + (viewMode < modeNames.length ? modeNames[viewMode] : "Unknown"));
         
         JSONObject response = new JSONObject();
         response.put("success", true);
@@ -266,7 +266,7 @@ public class StreamingApiHandler {
     }
     
     private static void sendStreamViewMode(OutputStream out) throws Exception {
-        GpuSurveillancePipeline pipeline = CameraDaemon.getGpuPipeline();
+        GpuSurveillancePipeline pipeline = SystemDaemon.getGpuPipeline();
         
         int viewMode = (pipeline != null) ? pipeline.getStreamViewMode() : -1;
         String[] modeNames = {"Mosaic", "Front", "Right", "Rear", "Left", "Raw"};

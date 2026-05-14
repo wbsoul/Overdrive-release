@@ -994,7 +994,7 @@ class MainActivity : AppCompatActivity() {
                 
                 runOnUiThread {
                     logsViewModel.info("Camera", "Camera config cleared — restarting daemon")
-                    Toast.makeText(this, "Restarting camera daemon...", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, "Restarting system daemon...", Toast.LENGTH_SHORT).show()
                 }
                 
                 // Kill the camera daemon — DaemonLauncher's watchdog will auto-restart it
@@ -1006,9 +1006,9 @@ class MainActivity : AppCompatActivity() {
                     
                     override fun onLaunched() {
                         runOnUiThread {
-                            logsViewModel.info("Camera", "Camera daemon stopped — will auto-restart with full probe")
+                            logsViewModel.info("Camera", "System daemon stopped — will auto-restart with full probe")
                             Toast.makeText(this@MainActivity, 
-                                "✅ Camera daemon restarting with full probe", Toast.LENGTH_LONG).show()
+                                "✅ System daemon restarting with full probe", Toast.LENGTH_LONG).show()
                             
                             // Re-launch the daemon after a brief delay
                             android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({

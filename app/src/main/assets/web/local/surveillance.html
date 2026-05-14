@@ -534,6 +534,43 @@
                         </div>
                         <div class="setting-hint">Select which objects YOLO AI should identify. Motion detection triggers regardless — AI classifies what was detected.</div>
 
+                        <!-- Notify if no object detected -->
+                        <div class="setting-row" style="border-bottom:none;margin-top:8px;">
+                            <div class="setting-info">
+                                <div class="setting-name">Notify If No Object Detected</div>
+                                <div class="setting-desc">Record event even when AI finds no known object</div>
+                            </div>
+                            <div class="setting-control">
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="notifyIfNoObjectDetected" checked onchange="SurvSettings.updateDetection()">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <!-- Per-class confidence thresholds -->
+                        <div style="padding-top:12px;">
+                            <div class="setting-name" style="font-size:13px;margin-bottom:4px;">Minimum Detection Confidence</div>
+                            <div class="setting-desc" style="margin-bottom:10px;">Per-class confidence threshold for AI detection</div>
+                            <div style="display:flex;flex-direction:column;gap:8px;">
+                                <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text-secondary);">
+                                    <span style="width:52px;">Person</span>
+                                    <input type="range" id="minConfidencePerson" min="0" max="100" value="25" style="flex:1;" oninput="document.getElementById('confPersonVal').textContent=this.value" onchange="SurvSettings.updateDetection()">
+                                    <span id="confPersonVal" style="width:32px;text-align:right;">25</span>%
+                                </label>
+                                <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text-secondary);">
+                                    <span style="width:52px;">Vehicle</span>
+                                    <input type="range" id="minConfidenceCar" min="0" max="100" value="25" style="flex:1;" oninput="document.getElementById('confCarVal').textContent=this.value" onchange="SurvSettings.updateDetection()">
+                                    <span id="confCarVal" style="width:32px;text-align:right;">25</span>%
+                                </label>
+                                <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text-secondary);">
+                                    <span style="width:52px;">Bike</span>
+                                    <input type="range" id="minConfidenceBike" min="0" max="100" value="25" style="flex:1;" oninput="document.getElementById('confBikeVal').textContent=this.value" onchange="SurvSettings.updateDetection()">
+                                    <span id="confBikeVal" style="width:32px;text-align:right;">25</span>%
+                                </label>
+                            </div>
+                        </div>
+
                         <!-- Developer Section (collapsible) -->
                         <div style="border-top:1px solid var(--border-subtle);padding-top:12px;">
                             <div class="setting-row" style="border-bottom:none;cursor:pointer;" onclick="document.getElementById('v2DevContent').style.display = document.getElementById('v2DevContent').style.display === 'none' ? 'block' : 'none'; this.querySelector('.dev-arrow').classList.toggle('open');">

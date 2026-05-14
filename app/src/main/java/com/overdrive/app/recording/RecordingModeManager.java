@@ -4,7 +4,7 @@ import android.content.Context;
 
 import com.overdrive.app.camera.AvcHalWarmup;
 import com.overdrive.app.config.UnifiedConfigManager;
-import com.overdrive.app.daemon.CameraDaemon;
+import com.overdrive.app.daemon.SystemDaemon;
 import com.overdrive.app.logging.DaemonLogger;
 import com.overdrive.app.proximity.ProximityGuardController;
 import com.overdrive.app.surveillance.GpuSurveillancePipeline;
@@ -94,7 +94,7 @@ public class RecordingModeManager {
         // this the field stays at the GEAR_P default, and DRIVE_MODE /
         // PROXIMITY_GUARD auto-activate below silently no-ops if the daemon
         // restarted while the car was already in a driving gear. (GearMonitor
-        // is started later in CameraDaemon init, so on cold start this often
+        // is started later in SystemDaemon init, so on cold start this often
         // returns GEAR_P regardless — that's fine; onGearChanged() will
         // activate the mode when GearMonitor delivers its first real gear.)
         try {
@@ -381,7 +381,7 @@ public class RecordingModeManager {
             // No need to stop and restart — the camera is already open and the
             // mode will continue using it. Stopping causes a HAL teardown
             // (stopPreview + close) that disrupts the native DVR.
-            // If surveillance was active, CameraDaemon.onAccStateChanged handles
+            // If surveillance was active, SystemDaemon.onAccStateChanged handles
             // disabling it separately.
             
             // Start AVC keep-alive and activate mode after warmup
@@ -429,10 +429,10 @@ public class RecordingModeManager {
         } else if (!isOn) {
             // ACC turned OFF — always stop the pipeline regardless of mode.
             // Recording modes only operate when ACC is ON. Surveillance (if enabled)
-            // will be started separately by CameraDaemon.onAccStateChanged.
+            // will be started separately by SystemDaemon.onAccStateChanged.
             // pipeline.isRunning() guards against duplicate OFF events doing
             // unnecessary teardown work.
-            CameraDaemon.stopAvcKeepAlive();
+            SystemDaemon.stopAvcKeepAlive();
             if (pipeline.isRunning()) {
                 pipeline.stopRecording();
                 pipeline.stop();
@@ -579,7 +579,7 @@ public class RecordingModeManager {
         // wouldn't reach the encoder until the next full app restart.
         //
         // Safe at this exact moment: ACC has just turned ON, surveillance was
-        // already disabled by CameraDaemon.onAccOn() before this thread runs,
+        // already disabled by SystemDaemon.onAccOn() before this thread runs,
         // and CONTINUOUS/DRIVE_MODE recording hasn't started yet — there is no
         // active recording state to lose.
         if (mode != Mode.NONE && pipeline.isFpsConfigStale()) {
@@ -593,7 +593,7 @@ public class RecordingModeManager {
                 if (pipeline.isRunning()) {
                     logger.info("Stopping pipeline for NONE mode (resource saving)");
                     pipeline.stop();
-                    CameraDaemon.stopAvcKeepAlive();
+                    SystemDaemon.stopAvcKeepAlive();
                 }
                 modeActive = false;
                 break;
@@ -610,7 +610,7 @@ public class RecordingModeManager {
                         pipeline.startRecording();
                     }
                     // Start AVC keep-alive (pipeline is now running with ACC ON)
-                    CameraDaemon.startAvcKeepAliveIfNeeded();
+                    SystemDaemon.startAvcKeepAliveIfNeeded();
                     modeActive = pipeline.isRunning();
                 } catch (Exception e) {
                     logger.error("Failed to start CONTINUOUS mode: " + e.getMessage());
@@ -631,7 +631,7 @@ public class RecordingModeManager {
                         pipeline.startRecording();
                     }
                     // Start AVC keep-alive (pipeline is now running with ACC ON)
-                    CameraDaemon.startAvcKeepAliveIfNeeded();
+                    SystemDaemon.startAvcKeepAliveIfNeeded();
                     modeActive = pipeline.isRunning();
                 } catch (Exception e) {
                     logger.error("Failed to start DRIVE_MODE: " + e.getMessage());
@@ -648,7 +648,7 @@ public class RecordingModeManager {
                     }
                     proximityController.start();
                     // Start AVC keep-alive (pipeline is now running with ACC ON)
-                    CameraDaemon.startAvcKeepAliveIfNeeded();
+                    SystemDaemon.startAvcKeepAliveIfNeeded();
                     modeActive = pipeline.isRunning();
                 } catch (Exception e) {
                     logger.error("Failed to start PROXIMITY_GUARD mode: " + e.getMessage());
@@ -683,7 +683,7 @@ public class RecordingModeManager {
                 pipeline.stopRecording();
                 if (pipeline.isRunning() && !keepPipelineRunning) {
                     pipeline.stop();
-                    CameraDaemon.stopAvcKeepAlive();
+                    SystemDaemon.stopAvcKeepAlive();
                 }
                 break;
                 
@@ -699,7 +699,7 @@ public class RecordingModeManager {
                 proximityController.stop();
                 if (pipeline.isRunning() && !keepPipelineRunning) {
                     pipeline.stop();
-                    CameraDaemon.stopAvcKeepAlive();
+                    SystemDaemon.stopAvcKeepAlive();
                 }
                 break;
         }
@@ -778,7 +778,7 @@ public class RecordingModeManager {
      */
     public void shutdown() {
         logger.info("Shutting down RecordingModeManager...");
-        CameraDaemon.stopAvcKeepAlive();
+        SystemDaemon.stopAvcKeepAlive();
         deactivateMode(currentMode);
         if (proximityController != null) {
             proximityController.shutdown();

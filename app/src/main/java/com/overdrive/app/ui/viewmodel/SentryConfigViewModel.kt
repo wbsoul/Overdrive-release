@@ -15,7 +15,7 @@ import java.net.Socket
 
 /**
  * ViewModel for Sentry surveillance configuration.
- * Communicates with CameraDaemon's surveillance IPC server on port 19877.
+ * Communicates with SystemDaemon's surveillance IPC server on port 19877.
  */
 class SentryConfigViewModel : ViewModel() {
     
@@ -56,7 +56,7 @@ class SentryConfigViewModel : ViewModel() {
                 })
                 
                 if (configResponse == null) {
-                    _error.postValue("Cannot connect to daemon - is Camera Daemon running?")
+                    _error.postValue("Cannot connect to daemon - is System Daemon running?")
                     return@launch
                 }
                 
@@ -184,6 +184,22 @@ class SentryConfigViewModel : ViewModel() {
         updateLocalConfig { it.copy(detectBike = detect) }
     }
     
+    fun setNotifyIfNoObjectDetected(notify: Boolean) {
+        updateLocalConfig { it.copy(notifyIfNoObjectDetected = notify) }
+    }
+    
+    fun setMinConfidencePerson(confidence: Float) {
+        updateLocalConfig { it.copy(minConfidencePerson = confidence.coerceIn(0f, 1f)) }
+    }
+    
+    fun setMinConfidenceCar(confidence: Float) {
+        updateLocalConfig { it.copy(minConfidenceCar = confidence.coerceIn(0f, 1f)) }
+    }
+    
+    fun setMinConfidenceBike(confidence: Float) {
+        updateLocalConfig { it.copy(minConfidenceBike = confidence.coerceIn(0f, 1f)) }
+    }
+    
     fun setMinObjectSize(size: Float) {
         updateLocalConfig { it.copy(minObjectSize = size) }
     }
@@ -243,6 +259,10 @@ class SentryConfigViewModel : ViewModel() {
                 put("detectPerson", currentConfig.detectPerson)
                 put("detectCar", currentConfig.detectCar)
                 put("detectBike", currentConfig.detectBike)
+                put("notifyIfNoObjectDetected", currentConfig.notifyIfNoObjectDetected)
+                put("minConfidencePerson", currentConfig.minConfidencePerson)
+                put("minConfidenceCar", currentConfig.minConfidenceCar)
+                put("minConfidenceBike", currentConfig.minConfidenceBike)
                 put("preEventBufferSeconds", currentConfig.preEventBufferSeconds)
                 put("postEventBufferSeconds", currentConfig.postEventBufferSeconds)
                 put("schedulingEnabled", currentConfig.scheduleEnabled)
@@ -256,7 +276,7 @@ class SentryConfigViewModel : ViewModel() {
             })
             
             if (response == null) {
-                _error.postValue("Cannot connect to daemon - is Camera Daemon running?")
+                _error.postValue("Cannot connect to daemon - is System Daemon running?")
             } else if (response.optBoolean("success") != true) {
                 val errorMsg = response.optString("error", "Unknown error")
                 _error.postValue("Failed to save config: $errorMsg")
@@ -283,7 +303,7 @@ class SentryConfigViewModel : ViewModel() {
             })
             
             if (response == null) {
-                _error.postValue("Cannot connect to daemon - is Camera Daemon running?")
+                _error.postValue("Cannot connect to daemon - is System Daemon running?")
             } else if (response.optBoolean("success") != true) {
                 val errorMsg = response.optString("error", "Unknown error")
                 _error.postValue("Failed to update storage: $errorMsg")
@@ -480,6 +500,10 @@ class SentryConfigViewModel : ViewModel() {
             detectPerson = json.optBoolean("detectPerson", true),
             detectCar = json.optBoolean("detectCar", true),
             detectBike = json.optBoolean("detectBike", true),
+            notifyIfNoObjectDetected = json.optBoolean("notifyIfNoObjectDetected", true),
+            minConfidencePerson = json.optDouble("minConfidencePerson", 0.25).toFloat(),
+            minConfidenceCar = json.optDouble("minConfidenceCar", 0.25).toFloat(),
+            minConfidenceBike = json.optDouble("minConfidenceBike", 0.25).toFloat(),
             preEventBufferSeconds = json.optInt("preEventBufferSeconds", 5),
             postEventBufferSeconds = json.optInt("postEventBufferSeconds", 10),
             scheduleEnabled = json.optBoolean("schedulingEnabled", false),
@@ -513,6 +537,10 @@ class SentryConfigViewModel : ViewModel() {
         val detectPerson: Boolean = true,
         val detectCar: Boolean = true,
         val detectBike: Boolean = true,
+        val notifyIfNoObjectDetected: Boolean = true,
+        val minConfidencePerson: Float = 0.25f,
+        val minConfidenceCar: Float = 0.25f,
+        val minConfidenceBike: Float = 0.25f,
         val preEventBufferSeconds: Int = 5,
         val postEventBufferSeconds: Int = 10,
         val scheduleEnabled: Boolean = false,

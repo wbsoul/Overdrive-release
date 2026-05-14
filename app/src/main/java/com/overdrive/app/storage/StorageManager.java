@@ -2100,7 +2100,7 @@ public class StorageManager {
                         // Update running sentry engine's output directory
                         try {
                             com.overdrive.app.surveillance.GpuSurveillancePipeline pipeline =
-                                com.overdrive.app.daemon.CameraDaemon.getGpuPipeline();
+                                com.overdrive.app.daemon.SystemDaemon.getGpuPipeline();
                             if (pipeline != null && pipeline.getSentry() != null) {
                                 pipeline.getSentry().setEventOutputDir(getSurveillanceDir());
                                 logInfo("SD card watchdog: updated sentry output dir to " + 

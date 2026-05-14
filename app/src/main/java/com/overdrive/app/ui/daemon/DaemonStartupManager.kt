@@ -141,7 +141,7 @@ class DaemonStartupManager(
             val savedMode = PreferencesManager.getAccessMode()
             val streamMode = if (savedMode == AccessMode.PUBLIC) "public" else "private"
             log.info(TAG, "Syncing camera daemon stream mode to: $streamMode")
-            vm.cameraDaemonController.setStreamMode(streamMode)
+            vm.systemDaemonController.setStreamMode(streamMode)
         }
     }
 
@@ -153,8 +153,8 @@ class DaemonStartupManager(
         }
         log.info(TAG, "Starting core daemons (Camera first, then Sentry daemons)...")
         
-        // Start Camera Daemon FIRST
-        log.info(TAG, "Starting Camera Daemon...")
+        // Start System Daemon FIRST
+        log.info(TAG, "Starting System Daemon...")
         vm.startDaemon(DaemonType.CAMERA_DAEMON)
         
         // Start Sentry Daemon after Camera Daemon has time to initialize
@@ -173,15 +173,15 @@ class DaemonStartupManager(
     private fun startCoreDaemonsViaAdb() {
         log.info(TAG, "Starting core daemons via ADB (Camera first, then Sentry daemons)...")
         
-        // Start Camera Daemon FIRST
+        // Start System Daemon FIRST
         adbLauncher.isDaemonRunning("camera_daemon") { running ->
             if (!running) {
-                log.info(TAG, "Boot: Starting Camera Daemon...")
+                log.info(TAG, "Boot: Starting System Daemon...")
                 val nativeLibDir = context.applicationInfo.nativeLibraryDir
                 val outputDir = context.getExternalFilesDir(null)?.absolutePath ?: context.filesDir.absolutePath
-                adbLauncher.launchDaemon(outputDir, nativeLibDir, createLogCallback("CameraDaemon"))
+                adbLauncher.launchDaemon(outputDir, nativeLibDir, createLogCallback("SystemDaemon"))
             } else {
-                log.info(TAG, "Boot: Camera Daemon already running")
+                log.info(TAG, "Boot: System Daemon already running")
             }
         }
         
@@ -350,8 +350,8 @@ class DaemonStartupManager(
         when (newMode) {
             AccessMode.PRIVATE -> {
                 log.info(TAG, "Switched to PRIVATE mode")
-                vm.cameraDaemonController.setStreamMode("private") { success ->
-                    if (success) log.info(TAG, "Camera daemon set to PRIVATE mode")
+                vm.systemDaemonController.setStreamMode("private") { success ->
+                    if (success) log.info(TAG, "System daemon set to PRIVATE mode")
                 }
                 // Check if singbox is running and stop it (not needed in PRIVATE mode)
                 vm.singboxController.isRunning { isRunning ->
@@ -366,8 +366,8 @@ class DaemonStartupManager(
             }
             AccessMode.PUBLIC -> {
                 log.info(TAG, "Switched to PUBLIC mode")
-                vm.cameraDaemonController.setStreamMode("public") { success ->
-                    if (success) log.info(TAG, "Camera daemon set to PUBLIC mode")
+                vm.systemDaemonController.setStreamMode("public") { success ->
+                    if (success) log.info(TAG, "System daemon set to PUBLIC mode")
                 }
                 
                 // PUBLIC mode ALWAYS requires singbox - start it regardless of user preference

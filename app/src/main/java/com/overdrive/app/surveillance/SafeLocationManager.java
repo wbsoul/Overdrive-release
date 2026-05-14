@@ -1,6 +1,6 @@
 package com.overdrive.app.surveillance;
 
-import com.overdrive.app.daemon.CameraDaemon;
+import com.overdrive.app.daemon.SystemDaemon;
 import com.overdrive.app.monitor.GpsMonitor;
 
 import org.json.JSONArray;
@@ -25,7 +25,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
  * GPS Integration:
  * - Called by GpsMonitor.updateFromIpc() on every location update (~2s)
  * - Caches result to avoid redundant Haversine math
- * - On zone transition: enables/disables surveillance via CameraDaemon
+ * - On zone transition: enables/disables surveillance via SystemDaemon
  *
  * Thread Safety:
  * - CopyOnWriteArrayList for zone list (reads >> writes)
@@ -62,7 +62,7 @@ public class SafeLocationManager {
     /** Load zones from config file. Call once at daemon startup. */
     public void init() {
         loadFromFile();
-        CameraDaemon.log(TAG + ": Initialized with " + zones.size() + " zones, feature=" + featureEnabled);
+        SystemDaemon.log(TAG + ": Initialized with " + zones.size() + " zones, feature=" + featureEnabled);
     }
 
     // ========================================================================
@@ -71,7 +71,7 @@ public class SafeLocationManager {
 
     public SafeLocation addZone(String name, double lat, double lng, int radiusM) {
         if (zones.size() >= MAX_ZONES) {
-            CameraDaemon.log(TAG + ": Max zones reached (" + MAX_ZONES + ")");
+            SystemDaemon.log(TAG + ": Max zones reached (" + MAX_ZONES + ")");
             return null;
         }
         SafeLocation zone = new SafeLocation(name, lat, lng, radiusM);
@@ -79,7 +79,7 @@ public class SafeLocationManager {
         saveToFile();
         // Re-evaluate immediately — maybe we just added a zone we're inside
         reevaluateZone();
-        CameraDaemon.log(TAG + ": Added zone '" + name + "' at " + lat + "," + lng + " r=" + radiusM + "m");
+        SystemDaemon.log(TAG + ": Added zone '" + name + "' at " + lat + "," + lng + " r=" + radiusM + "m");
         return zone;
     }
 
@@ -105,7 +105,7 @@ public class SafeLocationManager {
                 zones.remove(zone);
                 saveToFile();
                 reevaluateZone();
-                CameraDaemon.log(TAG + ": Removed zone '" + zone.getName() + "'");
+                SystemDaemon.log(TAG + ": Removed zone '" + zone.getName() + "'");
                 return true;
             }
         }
@@ -120,7 +120,7 @@ public class SafeLocationManager {
         this.featureEnabled = enabled;
         saveToFile();
         reevaluateZone();
-        CameraDaemon.log(TAG + ": Feature " + (enabled ? "enabled" : "disabled"));
+        SystemDaemon.log(TAG + ": Feature " + (enabled ? "enabled" : "disabled"));
     }
 
     public boolean isFeatureEnabled() { return featureEnabled; }
@@ -201,27 +201,27 @@ public class SafeLocationManager {
     // ========================================================================
 
     private void onEnteredSafeZone(String zoneName) {
-        CameraDaemon.log(TAG + ": ENTERED safe zone '" + zoneName + "' — suppressing surveillance");
+        SystemDaemon.log(TAG + ": ENTERED safe zone '" + zoneName + "' — suppressing surveillance");
         // Don't call disableSurveillance() — that clears the user's preference.
         // Just stop the pipeline and mark as suppressed. The preference stays enabled
         // so surveillance auto-restarts when leaving the zone or on next ACC OFF.
-        if (CameraDaemon.isSurveillanceActive()) {
-            com.overdrive.app.surveillance.GpuSurveillancePipeline pipeline = CameraDaemon.getGpuPipeline();
+        if (SystemDaemon.isSurveillanceActive()) {
+            com.overdrive.app.surveillance.GpuSurveillancePipeline pipeline = SystemDaemon.getGpuPipeline();
             if (pipeline != null) {
                 pipeline.disableSurveillance();
                 pipeline.stop();
             }
-            CameraDaemon.setSafeZoneSuppressed(true);
+            SystemDaemon.setSafeZoneSuppressed(true);
         }
     }
 
     private void onLeftSafeZone() {
-        CameraDaemon.log(TAG + ": LEFT safe zone — resuming surveillance");
-        if (CameraDaemon.isSafeZoneSuppressed()) {
-            CameraDaemon.setSafeZoneSuppressed(false);
+        SystemDaemon.log(TAG + ": LEFT safe zone — resuming surveillance");
+        if (SystemDaemon.isSafeZoneSuppressed()) {
+            SystemDaemon.setSafeZoneSuppressed(false);
             // Check persisted config — only restart if user actually wants surveillance
             if (com.overdrive.app.config.UnifiedConfigManager.isSurveillanceEnabled()) {
-                CameraDaemon.enableSurveillance();
+                SystemDaemon.enableSurveillance();
             }
         }
     }
@@ -273,7 +273,7 @@ public class SafeLocationManager {
             target.setReadable(true, false);
             target.setWritable(true, false);
         } catch (Exception e) {
-            CameraDaemon.log(TAG + ": Failed to save: " + e.getMessage());
+            SystemDaemon.log(TAG + ": Failed to save: " + e.getMessage());
         }
     }
 
@@ -299,7 +299,7 @@ public class SafeLocationManager {
                 }
             }
         } catch (Exception e) {
-            CameraDaemon.log(TAG + ": Failed to load: " + e.getMessage());
+            SystemDaemon.log(TAG + ": Failed to load: " + e.getMessage());
         }
     }
 

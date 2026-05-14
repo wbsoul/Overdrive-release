@@ -397,7 +397,7 @@ public class BydDataCollector {
     // ACC state: when off, skip polling speed/engine/gearbox (always 0 when parked)
     private volatile boolean accIsOn = true;
 
-    /** Called by CameraDaemon when ACC state changes. Adjusts poll rate accordingly. */
+    /** Called by SystemDaemon when ACC state changes. Adjusts poll rate accordingly. */
     public void setAccState(boolean isOn) {
         this.accIsOn = isOn;
         // Restart poll scheduler at the appropriate rate

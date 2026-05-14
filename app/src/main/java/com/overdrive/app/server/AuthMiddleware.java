@@ -1,7 +1,7 @@
 package com.overdrive.app.server;
 
 import com.overdrive.app.auth.AuthManager;
-import com.overdrive.app.daemon.CameraDaemon;
+import com.overdrive.app.daemon.SystemDaemon;
 
 import java.io.OutputStream;
 import java.util.Arrays;
@@ -209,6 +209,6 @@ public class AuthMiddleware {
     }
     
     private static void log(String message) {
-        CameraDaemon.log("AUTH: " + message);
+        SystemDaemon.log("AUTH: " + message);
     }
 }

@@ -30,7 +30,7 @@ import okhttp3.Response;
  * Collects all ABRP Gold Standard fields from BYD vehicle monitors and reflection-based
  * device access, assembles JSON payloads, and POSTs them to the ABRP API at adaptive intervals.
  *
- * Runs as a scheduled thread inside CameraDaemon.
+ * Runs as a scheduled thread inside SystemDaemon.
  */
 public class AbrpTelemetryService {
 
@@ -659,7 +659,7 @@ public class AbrpTelemetryService {
 
     /**
      * Create a PermissionBypassContext for BYD device access.
-     * Follows the same pattern as AccSentryDaemon and CameraDaemon.
+     * Follows the same pattern as AccSentryDaemon and SystemDaemon.
      */
     private Context createPermissiveContext(Context context) {
         try {

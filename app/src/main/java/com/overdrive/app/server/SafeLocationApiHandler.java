@@ -1,6 +1,6 @@
 package com.overdrive.app.server;
 
-import com.overdrive.app.daemon.CameraDaemon;
+import com.overdrive.app.daemon.SystemDaemon;
 import com.overdrive.app.surveillance.SafeLocation;
 import com.overdrive.app.surveillance.SafeLocationManager;
 

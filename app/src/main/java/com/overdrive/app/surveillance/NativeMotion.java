@@ -34,7 +34,7 @@ public class NativeMotion {
     
     /**
      * Try to load the native library from an explicit path.
-     * Call this from CameraDaemon after getting the nativeLibDir.
+     * Call this from SystemDaemon after getting the nativeLibDir.
      * 
      * @param nativeLibDir The app's native library directory
      * @return true if library is now loaded

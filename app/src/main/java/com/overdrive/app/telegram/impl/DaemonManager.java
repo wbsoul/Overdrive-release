@@ -21,7 +21,7 @@ public class DaemonManager implements IDaemonManager {
     private static final Map<String, DaemonEntry> DAEMONS = new HashMap<>();
     
     static {
-        DAEMONS.put("camera", new DaemonEntry("CameraDaemon", "Camera"));
+        DAEMONS.put("camera", new DaemonEntry("SystemDaemon", "Camera"));
         DAEMONS.put("surveillance", new DaemonEntry("SurveillanceDaemon", "Surveillance"));
         DAEMONS.put("acc", new DaemonEntry("AccSentryDaemon", "ACC Sentry"));
         DAEMONS.put("telegram", new DaemonEntry("TelegramBotDaemon", "Telegram Bot"));

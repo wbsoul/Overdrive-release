@@ -29,7 +29,7 @@ import java.net.Socket;
  * RESPONSIBILITIES:
  * 1. ACC state monitoring via BYD bodywork service
  * 2. Screen control (input keyevent) - MUST run as UID 2000
- * 3. Surveillance enable/disable via IPC to CameraDaemon
+ * 3. Surveillance enable/disable via IPC to SystemDaemon
  * 4. MCU wake-up to keep hardware powered during sentry mode
  * 5. Backlight control and blocker activity management
  *
@@ -362,8 +362,8 @@ public class AccSentryDaemon {
 
         // Initialize unified config so calls into isSurveillanceEnabled() and
         // getSurveillanceSchedule() see the on-disk config (and trigger legacy
-        // migration if needed) when AccSentryDaemon starts before CameraDaemon.
-        // Idempotent — CameraDaemon also calls this.
+        // migration if needed) when AccSentryDaemon starts before SystemDaemon.
+        // Idempotent — SystemDaemon also calls this.
         try {
             com.overdrive.app.config.UnifiedConfigManager.init();
         } catch (Exception e) {
@@ -434,7 +434,7 @@ public class AccSentryDaemon {
                 // NOTE: Removed automatic disable — user can now toggle this from the app drawer menu
                 // disableBydTrafficMonitor();
                 
-                // Note: VehicleDataMonitor is initialized in CameraDaemon (separate process)
+                // Note: VehicleDataMonitor is initialized in SystemDaemon (separate process)
                 // which handles the HTTP API for vehicle data
             } else {
                 log("WARNING: Running without context");
@@ -785,8 +785,8 @@ public class AccSentryDaemon {
                     log("Started with ACC OFF - entering sentry mode");
                     enterSentryMode();
                 } else {
-                    // ACC is ON - notify CameraDaemon so AccMonitor has correct state
-                    log("Started with ACC ON - notifying CameraDaemon");
+                    // ACC is ON - notify SystemDaemon so AccMonitor has correct state
+                    log("Started with ACC ON - notifying SystemDaemon");
                     notifyAccState(false);  // accOff=false means ACC is ON
                 }
             } catch (Exception e) {
@@ -892,7 +892,7 @@ public class AccSentryDaemon {
         inSentryMode = true;
         log("=== ENTERING SENTRY MODE ===");
 
-        // CRITICAL: Always notify CameraDaemon that ACC is OFF immediately.
+        // CRITICAL: Always notify SystemDaemon that ACC is OFF immediately.
         // enableSurveillance() may skip the IPC if surveillanceEnabled is already true
         // or if the user has surveillance disabled in config, which would leave
         // AccMonitor stuck showing ACC ON (e.g. when parked in a safe zone).
@@ -925,11 +925,11 @@ public class AccSentryDaemon {
                 
                 // 7. Register door lock listener and wait for lock before arming surveillance.
                 // When ACC goes OFF and you exit the car, motion detection would pick you up
-                // Door lock gate is now handled by CameraDaemon (which has the cloud MQTT
-                // subscriber running in-process). CameraDaemon arms/disarms surveillance
+                // Door lock gate is now handled by SystemDaemon (which has the cloud MQTT
+                // subscriber running in-process). SystemDaemon arms/disarms surveillance
                 // based on lock/unlock events after receiving the ACC OFF notification above.
                 // AccSentryDaemon no longer needs to manage lock detection or surveillance IPC.
-                log("Door lock gate delegated to CameraDaemon (cloud MQTT in-process)");
+                log("Door lock gate delegated to SystemDaemon (cloud MQTT in-process)");
                 
                 // 8. Optional: Telegram daemon (in separate try-catch so surveillance failure doesn't block it)
                 try {
@@ -971,13 +971,13 @@ public class AccSentryDaemon {
         inSentryMode = false;
         surveillanceEnabled = false;
 
-        // CRITICAL: Always notify CameraDaemon that ACC is ON.
-        // CameraDaemon handles all surveillance cleanup (door lock gate, unlock poll,
+        // CRITICAL: Always notify SystemDaemon that ACC is ON.
+        // SystemDaemon handles all surveillance cleanup (door lock gate, unlock poll,
         // cloud listener, pipeline stop) in its ACC ON path.
         notifyAccState(false);  // accOff=false → ACC is ON
         
         // Clear safe zone suppression flag (clean slate for next sentry session)
-        try { CameraDaemon.setSafeZoneSuppressed(false); } catch (Exception ignored) {}
+        try { SystemDaemon.setSafeZoneSuppressed(false); } catch (Exception ignored) {}
         
         // Restore stock peripheral power behavior (allow MCU to cut power)
         configurePeripheralPower(false);
@@ -1930,7 +1930,7 @@ public class AccSentryDaemon {
                 com.overdrive.app.surveillance.SafeLocationManager.getInstance();
             if (safeLocMgr.isFeatureEnabled() && safeLocMgr.isInSafeZone()) {
                 log("In safe zone '" + safeLocMgr.getCurrentZoneName() + "' — skipping surveillance");
-                CameraDaemon.setSafeZoneSuppressed(true);
+                SystemDaemon.setSafeZoneSuppressed(true);
                 return;
             }
         } catch (Exception e) {
@@ -1949,7 +1949,7 @@ public class AccSentryDaemon {
             log("Schedule check failed: " + e.getMessage() + " — proceeding with surveillance");
         }
 
-        // Retry with backoff — CameraDaemon may not be up yet after boot
+        // Retry with backoff — SystemDaemon may not be up yet after boot
         int maxRetries = 10;
         long retryDelayMs = 3000; // Start with 3 seconds
 
@@ -1968,7 +1968,7 @@ public class AccSentryDaemon {
                 JSONObject config = new JSONObject();
                 // NOTE: Do NOT send accOff=true here — it was already sent by
                 // notifyAccState(true) in enterSentryMode(). Sending it again
-                // causes CameraDaemon.onAccStateChanged to run twice, which
+                // causes SystemDaemon.onAccStateChanged to run twice, which
                 // double-enables surveillance and resets the V2 pipeline.
                 config.put("enabled", true);
                 cmd.put("config", config);
@@ -2006,17 +2006,17 @@ public class AccSentryDaemon {
             }
         }
 
-        log("ERROR: Failed to enable surveillance after " + maxRetries + " attempts — CameraDaemon may not be running");
+        log("ERROR: Failed to enable surveillance after " + maxRetries + " attempts — SystemDaemon may not be running");
     }
 
     private static void disableSurveillance() {
-        // SOTA: Always attempt to disable when called — CameraDaemon may have enabled
+        // SOTA: Always attempt to disable when called — SystemDaemon may have enabled
         // surveillance independently (e.g., via the periodic schedule checker or the
         // 45-second fallback timer) without AccSentryDaemon knowing. Skipping based on
         // the local surveillanceEnabled flag would leave surveillance running when the
         // owner returns and unlocks the door.
         // Note: exitSentryMode() already sends notifyAccState(false) which triggers
-        // CameraDaemon's full ACC ON path (pipeline.stop()), so this is a belt-and-suspenders
+        // SystemDaemon's full ACC ON path (pipeline.stop()), so this is a belt-and-suspenders
         // call. It's safe to send even if surveillance is already stopped.
 
         log("Disabling surveillance via IPC (battery protection / session stop)...");
@@ -2040,19 +2040,19 @@ public class AccSentryDaemon {
     }
 
     /**
-     * Notify CameraDaemon of ACC state change.
+     * Notify SystemDaemon of ACC state change.
      * This updates AccMonitor so HTTP API returns correct acc status.
      * 
      * @param accOff true if ACC is OFF, false if ACC is ON
      */
     
     // ==================== DOOR LOCK GATED SURVEILLANCE — DELETED ====================
-    // Door-lock gating is owned by CameraDaemon (it has the cloud MQTT subscriber
+    // Door-lock gating is owned by SystemDaemon (it has the cloud MQTT subscriber
     // in-process and BydDataCollector's typed HAL listener). AccSentryDaemon
     // delegates by calling notifyAccState() — see enterSentryMode() / exitSentryMode().
     
     /**
-     * Notify CameraDaemon of ACC state change.
+     * Notify SystemDaemon of ACC state change.
      * This updates AccMonitor so HTTP API returns correct acc status.
      * 
      * @param accOff true if ACC is OFF, false if ACC is ON
@@ -2066,7 +2066,7 @@ public class AccSentryDaemon {
             cmd.put("config", config);
             
             sendSurveillanceCommandRaw(cmd);
-            log("ACC state notified to CameraDaemon: accOff=" + accOff);
+            log("ACC state notified to SystemDaemon: accOff=" + accOff);
         } catch (Exception e) {
             log("WARN: Failed to notify ACC state: " + e.getMessage());
         }

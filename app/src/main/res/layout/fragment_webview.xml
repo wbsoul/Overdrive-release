@@ -55,7 +55,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="16dp"
-            android:text="Camera Daemon Not Running"
+            android:text="System Daemon Not Running"
             android:textColor="@color/text_primary"
             android:textSize="18sp"
             android:fontFamily="sans-serif-medium"
@@ -65,7 +65,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:text="Start the Camera Daemon from the Daemons screen to access this page."
+            android:text="Start the System Daemon from the Daemons screen to access this page."
             android:textColor="@color/text_muted"
             android:textSize="14sp"
             android:gravity="center" />

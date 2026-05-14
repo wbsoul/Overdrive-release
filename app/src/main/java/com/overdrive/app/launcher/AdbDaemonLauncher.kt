@@ -8,7 +8,7 @@ import com.overdrive.app.logging.LogManager
  * 
  * This class delegates to specialized launchers:
  * - AdbShellExecutor: ADB connection and shell command execution
- * - DaemonLauncher: Daemon process launching (CameraDaemon, SentryDaemon, etc.)
+ * - DaemonLauncher: Daemon process launching (SystemDaemon, SentryDaemon, etc.)
  * - TunnelLauncher: Tunnel launching (Cloudflared)
  * - ServiceLauncher: Android service launching and permission configuration
  * 
@@ -81,10 +81,10 @@ class AdbDaemonLauncher(private val context: Context) {
     // ==================== DAEMON LAUNCHING ====================
     
     /**
-     * Launch the CameraDaemon via ADB loopback.
+     * Launch the SystemDaemon via ADB loopback.
      */
     fun launchDaemon(outputDir: String, nativeLibDir: String, callback: LaunchCallback) {
-        daemonLauncher.launchCameraDaemon(
+        daemonLauncher.launchSystemDaemon(
             outputDir = outputDir,
             nativeLibDir = nativeLibDir,
             callback = callback.toDaemonCallback()

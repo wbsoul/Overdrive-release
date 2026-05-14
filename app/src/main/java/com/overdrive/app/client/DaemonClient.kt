@@ -2,6 +2,6 @@ package com.overdrive.app.client
 
 /**
  * Type alias for backward compatibility.
- * DaemonClient was renamed to CameraDaemonClient.
+ * DaemonClient was renamed to SystemDaemonClient.
  */
-typealias DaemonClient = CameraDaemonClient
+typealias DaemonClient = SystemDaemonClient

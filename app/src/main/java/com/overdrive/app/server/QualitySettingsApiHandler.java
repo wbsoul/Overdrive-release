@@ -1,6 +1,6 @@
 package com.overdrive.app.server;
 
-import com.overdrive.app.daemon.CameraDaemon;
+import com.overdrive.app.daemon.SystemDaemon;
 import com.overdrive.app.storage.StorageManager;
 
 import org.json.JSONObject;
@@ -142,9 +142,9 @@ public class QualitySettingsApiHandler {
                 boolean success = storage.setRecordingsStorageType(type);
                 if (success) {
                     storageTypeChanged = true;
-                    CameraDaemon.log("Recordings storage type set to: " + type);
+                    SystemDaemon.log("Recordings storage type set to: " + type);
                 } else {
-                    CameraDaemon.log("Failed to set recordings storage type to SD_CARD - not available");
+                    SystemDaemon.log("Failed to set recordings storage type to SD_CARD - not available");
                 }
             }
             
@@ -155,22 +155,22 @@ public class QualitySettingsApiHandler {
                 boolean success = storage.setSurveillanceStorageType(type);
                 if (success) {
                     storageTypeChanged = true;
-                    CameraDaemon.log("Surveillance storage type set to: " + type);
+                    SystemDaemon.log("Surveillance storage type set to: " + type);
                     
                     // Update running sentry engine's output directory to match new storage
                     try {
                         com.overdrive.app.surveillance.GpuSurveillancePipeline pipeline =
-                            CameraDaemon.getGpuPipeline();
+                            SystemDaemon.getGpuPipeline();
                         if (pipeline != null && pipeline.getSentry() != null) {
                             pipeline.getSentry().setEventOutputDir(storage.getSurveillanceDir());
-                            CameraDaemon.log("Updated sentry output dir: " + 
+                            SystemDaemon.log("Updated sentry output dir: " + 
                                 storage.getSurveillanceDir().getAbsolutePath());
                         }
                     } catch (Exception e) {
-                        CameraDaemon.log("Warning: could not update sentry output dir: " + e.getMessage());
+                        SystemDaemon.log("Warning: could not update sentry output dir: " + e.getMessage());
                     }
                 } else {
-                    CameraDaemon.log("Failed to set surveillance storage type to SD_CARD - not available");
+                    SystemDaemon.log("Failed to set surveillance storage type to SD_CARD - not available");
                 }
             }
             
@@ -194,7 +194,7 @@ public class QualitySettingsApiHandler {
                     }
                 }
                 storage.setRecordingsLimitMb(newLimit);
-                CameraDaemon.log("Recordings limit set to: " + newLimit + " MB");
+                SystemDaemon.log("Recordings limit set to: " + newLimit + " MB");
             }
             
             if (settings.has("surveillanceLimitMb")) {
@@ -211,13 +211,13 @@ public class QualitySettingsApiHandler {
                     }
                 }
                 storage.setSurveillanceLimitMb(newLimit);
-                CameraDaemon.log("Surveillance limit set to: " + newLimit + " MB");
+                SystemDaemon.log("Surveillance limit set to: " + newLimit + " MB");
             }
             
             // Run cleanup async to not block HTTP response
             new Thread(() -> {
                 storage.runCleanup();
-                CameraDaemon.log("Storage cleanup completed after limit change");
+                SystemDaemon.log("Storage cleanup completed after limit change");
             }, "StorageLimitCleanup").start();
             
             JSONObject response = new JSONObject();
@@ -251,7 +251,7 @@ public class QualitySettingsApiHandler {
             HttpResponse.sendJson(out, response.toString());
             
         } catch (Exception e) {
-            CameraDaemon.log("Error setting storage limits: " + e.getMessage());
+            SystemDaemon.log("Error setting storage limits: " + e.getMessage());
             HttpResponse.sendJsonError(out, e.getMessage());
         }
     }
@@ -303,7 +303,7 @@ public class QualitySettingsApiHandler {
                 response.put("lastModified", System.currentTimeMillis());
             }
         } catch (Exception e) {
-            CameraDaemon.log("sendUnifiedConfig: Error reading config: " + e.getMessage());
+            SystemDaemon.log("sendUnifiedConfig: Error reading config: " + e.getMessage());
             // Return minimal default
             JSONObject config = new JSONObject();
             JSONObject proximityGuard = new JSONObject();
@@ -372,7 +372,7 @@ public class QualitySettingsApiHandler {
             unifiedFile.setReadable(true, false);
             unifiedFile.setWritable(true, false);
             
-            CameraDaemon.log("Unified config section '" + section + "' updated");
+            SystemDaemon.log("Unified config section '" + section + "' updated");
             
             JSONObject response = new JSONObject();
             response.put("success", true);
@@ -382,7 +382,7 @@ public class QualitySettingsApiHandler {
             HttpResponse.sendJson(out, response.toString());
             
         } catch (Exception e) {
-            CameraDaemon.log("Error updating unified config: " + e.getMessage());
+            SystemDaemon.log("Error updating unified config: " + e.getMessage());
             HttpResponse.sendJsonError(out, e.getMessage());
         }
     }
@@ -444,7 +444,7 @@ public class QualitySettingsApiHandler {
                 }
             }
         } catch (Exception e) {
-            CameraDaemon.log("sendQualitySettings: Could not read unified config: " + e.getMessage());
+            SystemDaemon.log("sendQualitySettings: Could not read unified config: " + e.getMessage());
         }
         
         response.put("recordingQuality", currentRecQuality);
@@ -495,8 +495,8 @@ public class QualitySettingsApiHandler {
                 String recQuality = settings.getString("recordingQuality");
                 if (recQuality.equals("LOW") || recQuality.equals("REDUCED") || recQuality.equals("NORMAL")) {
                     recordingQuality = recQuality;
-                    CameraDaemon.log("Recording quality set to: " + recQuality);
-                    CameraDaemon.setRecordingQuality(recQuality);
+                    SystemDaemon.log("Recording quality set to: " + recQuality);
+                    SystemDaemon.setRecordingQuality(recQuality);
                 }
             }
             
@@ -506,8 +506,8 @@ public class QualitySettingsApiHandler {
                     streamQuality.equals("MEDIUM") || streamQuality.equals("HIGH") || 
                     streamQuality.equals("ULTRA_HIGH") || streamQuality.equals("LQ") || streamQuality.equals("HQ")) {
                     StreamingApiHandler.setStreamingQuality(streamQuality);
-                    CameraDaemon.log("Streaming quality set to: " + streamQuality);
-                    CameraDaemon.setStreamingQuality(streamQuality);
+                    SystemDaemon.log("Streaming quality set to: " + streamQuality);
+                    SystemDaemon.setStreamingQuality(streamQuality);
                 }
             }
             
@@ -515,8 +515,8 @@ public class QualitySettingsApiHandler {
                 String bitrate = settings.getString("recordingBitrate").toUpperCase();
                 if (bitrate.equals("LOW") || bitrate.equals("MEDIUM") || bitrate.equals("HIGH")) {
                     recordingBitrate = bitrate;
-                    CameraDaemon.log("Recording bitrate set to: " + bitrate);
-                    CameraDaemon.setRecordingBitrate(bitrate);
+                    SystemDaemon.log("Recording bitrate set to: " + bitrate);
+                    SystemDaemon.setRecordingBitrate(bitrate);
                 }
             }
             
@@ -524,8 +524,8 @@ public class QualitySettingsApiHandler {
                 String codec = settings.getString("recordingCodec").toUpperCase();
                 if (codec.equals("H264") || codec.equals("H265")) {
                     recordingCodec = codec;
-                    CameraDaemon.log("Recording codec set to: " + codec);
-                    CameraDaemon.setRecordingCodec(codec);
+                    SystemDaemon.log("Recording codec set to: " + codec);
+                    SystemDaemon.setRecordingCodec(codec);
                 }
             }
             
@@ -540,14 +540,14 @@ public class QualitySettingsApiHandler {
                         camCfg.put("targetFps", fps);
                         com.overdrive.app.config.UnifiedConfigManager.updateSection("camera", camCfg);
                     } catch (Exception e) {
-                        CameraDaemon.log("Failed to save camera FPS: " + e.getMessage());
+                        SystemDaemon.log("Failed to save camera FPS: " + e.getMessage());
                     }
                     // Apply to running camera (takes effect on next camera open/restart)
-                    com.overdrive.app.surveillance.GpuSurveillancePipeline pipeline = CameraDaemon.getGpuPipeline();
+                    com.overdrive.app.surveillance.GpuSurveillancePipeline pipeline = SystemDaemon.getGpuPipeline();
                     if (pipeline != null && pipeline.getCamera() != null) {
                         pipeline.getCamera().setTargetFps(fps);
                     }
-                    CameraDaemon.log("Camera FPS set to: " + fps + " (applies on next camera restart)");
+                    SystemDaemon.log("Camera FPS set to: " + fps + " (applies on next camera restart)");
                 }
             }
             
@@ -563,7 +563,7 @@ public class QualitySettingsApiHandler {
             HttpResponse.sendJson(out, response.toString());
             
         } catch (Exception e) {
-            CameraDaemon.log("Error setting quality: " + e.getMessage());
+            SystemDaemon.log("Error setting quality: " + e.getMessage());
             HttpResponse.sendJsonError(out, e.getMessage());
         }
     }
@@ -593,21 +593,21 @@ public class QualitySettingsApiHandler {
                         String bitrate = recording.getString("bitrate");
                         if (bitrate.equals("LOW") || bitrate.equals("MEDIUM") || bitrate.equals("HIGH")) {
                             recordingBitrate = bitrate;
-                            CameraDaemon.log("Restored recording bitrate from unified: " + bitrate);
+                            SystemDaemon.log("Restored recording bitrate from unified: " + bitrate);
                         }
                     }
                     if (recording.has("codec")) {
                         String codec = recording.getString("codec");
                         if (codec.equals("H264") || codec.equals("H265")) {
                             recordingCodec = codec;
-                            CameraDaemon.log("Restored recording codec from unified: " + codec);
+                            SystemDaemon.log("Restored recording codec from unified: " + codec);
                         }
                     }
                     if (recording.has("quality")) {
                         String quality = recording.getString("quality");
                         if (quality.equals("LOW") || quality.equals("REDUCED") || quality.equals("NORMAL")) {
                             recordingQuality = quality;
-                            CameraDaemon.log("Restored recording quality from unified: " + quality);
+                            SystemDaemon.log("Restored recording quality from unified: " + quality);
                         }
                     }
                 }
@@ -616,14 +616,14 @@ public class QualitySettingsApiHandler {
                 if (streaming != null && streaming.has("quality")) {
                     String quality = streaming.getString("quality");
                     StreamingApiHandler.setStreamingQuality(quality);
-                    CameraDaemon.log("Restored streaming quality from unified: " + quality);
+                    SystemDaemon.log("Restored streaming quality from unified: " + quality);
                 }
                 
-                CameraDaemon.log("Settings loaded from unified config: " + UNIFIED_CONFIG_FILE);
+                SystemDaemon.log("Settings loaded from unified config: " + UNIFIED_CONFIG_FILE);
                 return;
             }
         } catch (Exception e) {
-            CameraDaemon.log("Could not load from unified config: " + e.getMessage());
+            SystemDaemon.log("Could not load from unified config: " + e.getMessage());
         }
         
         // Fallback to legacy settings file
@@ -633,7 +633,7 @@ public class QualitySettingsApiHandler {
     private static void loadLegacySettings() {
         try {
             File file = new File(LEGACY_SETTINGS_FILE);
-            CameraDaemon.log("Loading settings from legacy: " + LEGACY_SETTINGS_FILE + " (exists=" + file.exists() + ")");
+            SystemDaemon.log("Loading settings from legacy: " + LEGACY_SETTINGS_FILE + " (exists=" + file.exists() + ")");
             if (file.exists()) {
                 BufferedReader reader = new BufferedReader(new FileReader(file));
                 StringBuilder sb = new StringBuilder();
@@ -668,12 +668,12 @@ public class QualitySettingsApiHandler {
                     StreamingApiHandler.setStreamingQuality(quality);
                 }
                 
-                CameraDaemon.log("Settings loaded from legacy " + LEGACY_SETTINGS_FILE);
+                SystemDaemon.log("Settings loaded from legacy " + LEGACY_SETTINGS_FILE);
                 // Migrate to unified config
                 persistSettings();
             }
         } catch (Exception e) {
-            CameraDaemon.log("Could not load legacy settings: " + e.getMessage());
+            SystemDaemon.log("Could not load legacy settings: " + e.getMessage());
         }
     }
     
@@ -697,9 +697,9 @@ public class QualitySettingsApiHandler {
             streaming.put("quality", StreamingApiHandler.getStreamingQuality());
             com.overdrive.app.config.UnifiedConfigManager.updateSection("streaming", streaming);
 
-            CameraDaemon.log("Settings persisted via UnifiedConfigManager");
+            SystemDaemon.log("Settings persisted via UnifiedConfigManager");
         } catch (Exception e) {
-            CameraDaemon.log("Could not persist settings: " + e.getMessage());
+            SystemDaemon.log("Could not persist settings: " + e.getMessage());
         }
     }
 
@@ -718,7 +718,7 @@ public class QualitySettingsApiHandler {
     public static void setRecordingBitrate(String bitrate) {
         if (bitrate.equals("LOW") || bitrate.equals("MEDIUM") || bitrate.equals("HIGH")) {
             recordingBitrate = bitrate;
-            CameraDaemon.setRecordingBitrate(bitrate);
+            SystemDaemon.setRecordingBitrate(bitrate);
             persistSettings();
         }
     }
@@ -726,12 +726,12 @@ public class QualitySettingsApiHandler {
     public static void setRecordingCodec(String codec) {
         if (codec.equals("H264") || codec.equals("H265")) {
             recordingCodec = codec;
-            CameraDaemon.setRecordingCodec(codec);
+            SystemDaemon.setRecordingCodec(codec);
             persistSettings();
         }
     }
     
-    // Static setters for IPC server (updates variable only, no CameraDaemon call)
+    // Static setters for IPC server (updates variable only, no SystemDaemon call)
     public static void setRecordingBitrateStatic(String bitrate) {
         if (bitrate.equals("LOW") || bitrate.equals("MEDIUM") || bitrate.equals("HIGH")) {
             recordingBitrate = bitrate;
@@ -768,7 +768,7 @@ public class QualitySettingsApiHandler {
             com.overdrive.app.config.UnifiedConfigManager.setTelemetryOverlay(overlayConfig);
 
             // Notify pipeline
-            com.overdrive.app.surveillance.GpuSurveillancePipeline pipeline = CameraDaemon.getGpuPipeline();
+            com.overdrive.app.surveillance.GpuSurveillancePipeline pipeline = SystemDaemon.getGpuPipeline();
             if (pipeline != null) {
                 pipeline.setOverlayEnabled(enabled);
             }
@@ -778,7 +778,7 @@ public class QualitySettingsApiHandler {
             response.put("enabled", enabled);
             HttpResponse.sendJson(out, response.toString());
         } catch (Exception e) {
-            CameraDaemon.log("Error setting telemetry overlay: " + e.getMessage());
+            SystemDaemon.log("Error setting telemetry overlay: " + e.getMessage());
             HttpResponse.sendJsonError(out, e.getMessage());
         }
     }

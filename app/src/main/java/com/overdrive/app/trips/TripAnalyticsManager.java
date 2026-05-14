@@ -13,11 +13,11 @@ import java.util.List;
 
 /**
  * Top-level coordinator for Trip Analytics & Driving DNA.
- * Single entry point for CameraDaemon integration.
+ * Single entry point for SystemDaemon integration.
  *
  * Lifecycle:
- *   CameraDaemon.main() → init(context, telemetryDataCollector, sohEstimator)
- *   CameraDaemon.shutdown() → shutdown()
+ *   SystemDaemon.main() → init(context, telemetryDataCollector, sohEstimator)
+ *   SystemDaemon.shutdown() → shutdown()
  *   GearMonitor callback → onGearChanged(newGear)
  */
 public class TripAnalyticsManager {
@@ -40,7 +40,7 @@ public class TripAnalyticsManager {
     // ==================== LIFECYCLE ====================
 
     /**
-     * Initialize trip analytics. Called from CameraDaemon.main() after ABRP init.
+     * Initialize trip analytics. Called from SystemDaemon.main() after ABRP init.
      *
      * 1. Load TripConfig from properties file
      * 2. If enabled: initialize TripDatabase, TripDetector, TripTelemetryRecorder,
@@ -78,7 +78,7 @@ public class TripAnalyticsManager {
     }
 
     /**
-     * Shut down trip analytics. Called from CameraDaemon.shutdown().
+     * Shut down trip analytics. Called from SystemDaemon.shutdown().
      *
      * 1. Finalize active trip via TripDetector
      * 2. Close TripDatabase
@@ -108,7 +108,7 @@ public class TripAnalyticsManager {
 
     /**
      * Forward gear change to TripDetector if enabled.
-     * Called from CameraDaemon.onGearChanged().
+     * Called from SystemDaemon.onGearChanged().
      */
     public void onGearChanged(int newGear) {
         if (enabled && detector != null) {
@@ -236,7 +236,7 @@ public class TripAnalyticsManager {
 
     /**
      * Update the TelemetryDataCollector reference after late initialization.
-     * Called by CameraDaemon once TelemetryDataCollector is ready (after GPU init delay).
+     * Called by SystemDaemon once TelemetryDataCollector is ready (after GPU init delay).
      */
     public void setTelemetryDataCollector(TelemetryDataCollector collector) {
         this.telemetryDataCollector = collector;

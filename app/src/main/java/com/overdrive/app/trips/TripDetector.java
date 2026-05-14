@@ -22,7 +22,7 @@ import java.util.concurrent.TimeUnit;
  * - PARK_PENDING + gear ∈ {D, R, S, M, N} (within 120s) → cancel timer → ACTIVE
  * - PARK_PENDING + 120s elapsed → finalize trip, notify listener → IDLE
  *
- * Called from CameraDaemon.onGearChanged() when gear transitions occur.
+ * Called from SystemDaemon.onGearChanged() when gear transitions occur.
  */
 public class TripDetector {
 
@@ -84,15 +84,15 @@ public class TripDetector {
 
     /**
      * Register with GearMonitor for gear change callbacks.
-     * Currently a no-op — CameraDaemon forwards gear changes directly via onGearChanged().
+     * Currently a no-op — SystemDaemon forwards gear changes directly via onGearChanged().
      */
     public void registerWithGearMonitor() {
-        logger.info("registerWithGearMonitor (no-op: CameraDaemon forwards gear changes)");
+        logger.info("registerWithGearMonitor (no-op: SystemDaemon forwards gear changes)");
     }
 
     /**
      * Unregister from GearMonitor.
-     * Currently a no-op — CameraDaemon forwards gear changes directly.
+     * Currently a no-op — SystemDaemon forwards gear changes directly.
      */
     public void unregisterFromGearMonitor() {
         logger.info("unregisterFromGearMonitor (no-op)");
@@ -101,7 +101,7 @@ public class TripDetector {
     // ==================== GEAR CHANGE HANDLER ====================
 
     /**
-     * Called from CameraDaemon when gear changes.
+     * Called from SystemDaemon when gear changes.
      * This is the main entry point for the state machine.
      *
      * @param newGear The new gear position (1=P, 2=R, 3=N, 4=D, 5=M, 6=S)
