@@ -549,25 +549,43 @@
                         </div>
 
                         <!-- Per-class confidence thresholds -->
-                        <div style="padding-top:12px;">
-                            <div class="setting-name" style="font-size:13px;margin-bottom:4px;">Minimum Detection Confidence</div>
-                            <div class="setting-desc" style="margin-bottom:10px;">Per-class confidence threshold for AI detection</div>
-                            <div style="display:flex;flex-direction:column;gap:8px;">
-                                <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text-secondary);">
-                                    <span style="width:52px;">Person</span>
-                                    <input type="range" id="minConfidencePerson" min="0" max="100" value="25" style="flex:1;" oninput="document.getElementById('confPersonVal').textContent=this.value; SurvSettings.updateDetection()">
-                                    <span id="confPersonVal" style="width:32px;text-align:right;">25</span>%
-                                </label>
-                                <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text-secondary);">
-                                    <span style="width:52px;">Vehicle</span>
-                                    <input type="range" id="minConfidenceCar" min="0" max="100" value="25" style="flex:1;" oninput="document.getElementById('confCarVal').textContent=this.value; SurvSettings.updateDetection()">
-                                    <span id="confCarVal" style="width:32px;text-align:right;">25</span>%
-                                </label>
-                                <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text-secondary);">
-                                    <span style="width:52px;">Bike</span>
-                                    <input type="range" id="minConfidenceBike" min="0" max="100" value="25" style="flex:1;" oninput="document.getElementById('confBikeVal').textContent=this.value; SurvSettings.updateDetection()">
-                                    <span id="confBikeVal" style="width:32px;text-align:right;">25</span>%
-                                </label>
+                        <div class="setting-row" style="border-bottom:none; padding-bottom:4px;">
+                            <div class="setting-info">
+                                <div class="setting-name">Minimum Detection Confidence</div>
+                                <div class="setting-desc">Per-class confidence threshold for AI detection</div>
+                            </div>
+                        </div>
+                        <div class="setting-row">
+                            <div class="setting-info">
+                                <div class="setting-name">Person</div>
+                            </div>
+                            <div class="setting-control">
+                                <div class="slider-control">
+                                    <span class="slider-value" id="confPersonVal">25%</span>
+                                    <input type="range" class="slider" id="minConfidencePerson" min="0" max="100" value="25" oninput="document.getElementById('confPersonVal').textContent=this.value+'%'; SurvSettings.updateDetection()">
+                                </div>
+                            </div>
+                        </div>
+                        <div class="setting-row">
+                            <div class="setting-info">
+                                <div class="setting-name">Vehicle</div>
+                            </div>
+                            <div class="setting-control">
+                                <div class="slider-control">
+                                    <span class="slider-value" id="confCarVal">25%</span>
+                                    <input type="range" class="slider" id="minConfidenceCar" min="0" max="100" value="25" oninput="document.getElementById('confCarVal').textContent=this.value+'%'; SurvSettings.updateDetection()">
+                                </div>
+                            </div>
+                        </div>
+                        <div class="setting-row" style="border-bottom:none;">
+                            <div class="setting-info">
+                                <div class="setting-name">Bike</div>
+                            </div>
+                            <div class="setting-control">
+                                <div class="slider-control">
+                                    <span class="slider-value" id="confBikeVal">25%</span>
+                                    <input type="range" class="slider" id="minConfidenceBike" min="0" max="100" value="25" oninput="document.getElementById('confBikeVal').textContent=this.value+'%'; SurvSettings.updateDetection()">
+                                </div>
                             </div>
                         </div>
 

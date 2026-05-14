@@ -1328,11 +1328,11 @@ BYD.surveillance = {
         if (nno) nno.checked = (this.config.notifyIfNoObjectDetected !== false);
         // Per-class confidence sliders
         const scp = document.getElementById('minConfidencePerson');
-        if (scp) { scp.value = Math.round((this.config.minConfidencePerson || 0.25) * 100); document.getElementById('confPersonVal') && (document.getElementById('confPersonVal').textContent = scp.value); }
+        if (scp) { scp.value = Math.round((this.config.minConfidencePerson || 0.25) * 100); document.getElementById('confPersonVal') && (document.getElementById('confPersonVal').textContent = scp.value + '%'); }
         const scc = document.getElementById('minConfidenceCar');
-        if (scc) { scc.value = Math.round((this.config.minConfidenceCar || 0.25) * 100); document.getElementById('confCarVal') && (document.getElementById('confCarVal').textContent = scc.value); }
+        if (scc) { scc.value = Math.round((this.config.minConfidenceCar || 0.25) * 100); document.getElementById('confCarVal') && (document.getElementById('confCarVal').textContent = scc.value + '%'); }
         const scb = document.getElementById('minConfidenceBike');
-        if (scb) { scb.value = Math.round((this.config.minConfidenceBike || 0.25) * 100); document.getElementById('confBikeVal') && (document.getElementById('confBikeVal').textContent = scb.value); }
+        if (scb) { scb.value = Math.round((this.config.minConfidenceBike || 0.25) * 100); document.getElementById('confBikeVal') && (document.getElementById('confBikeVal').textContent = scb.value + '%'); }
     },
 
     async applySettings() {
