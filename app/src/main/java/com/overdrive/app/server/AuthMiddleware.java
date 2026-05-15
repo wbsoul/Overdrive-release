@@ -48,7 +48,11 @@ public class AuthMiddleware {
 
     // Path prefixes that don't require authentication
     private static final String[] PUBLIC_PREFIXES = {
-        "/shared/"       // Static assets (CSS, JS, fonts, models)
+        "/shared/",      // Static assets (CSS, JS, fonts, models)
+        "/thumb/"        // Thumbnails must be publicly accessible so FCM can fetch
+                         // them to attach as BigPicture notification images.
+                         // Filenames are timestamp-based (not guessable) and the
+                         // tunnel URL itself is the shared secret.
     };
 
     // Cookie name for JWT

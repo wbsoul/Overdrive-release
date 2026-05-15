@@ -510,6 +510,29 @@ public class RecordingsApiHandler {
             if (type.equals("sentry")) {
                 String baseName = name.endsWith(".mp4") ? name.substring(0, name.length() - 4) : name;
                 File sidecar = new File(file.getParentFile(), baseName + ".json");
+                // Always check .ai.json first — written at trigger time (recording start).
+                // This covers in-progress recordings (.json not yet written) and old
+                // recordings where the full sidecar has no AI events.
+                if (!sidecar.exists()) {
+                    File aiFile = new File(file.getParentFile(), baseName + ".ai.json");
+                    if (aiFile.exists()) {
+                        try {
+                            String aiJsonStr = new String(java.nio.file.Files.readAllBytes(aiFile.toPath()),
+                                    java.nio.charset.StandardCharsets.UTF_8);
+                            org.json.JSONObject aiJson = new org.json.JSONObject(aiJsonStr);
+                            String aiType = aiJson.optString("type", "");
+                            int aiConf = aiJson.optInt("conf", 0);
+                            if (aiType.equals("person") || aiType.equals("car") || aiType.equals("bike")) {
+                                org.json.JSONArray aiArr = new org.json.JSONArray();
+                                org.json.JSONObject entry = new org.json.JSONObject();
+                                entry.put("type", aiType);
+                                entry.put("conf", aiConf);
+                                aiArr.put(entry);
+                                rec.put("aiDetections", aiArr);
+                            }
+                        } catch (Exception ignored) {}
+                    }
+                }
                 if (sidecar.exists()) {
                     try {
                         String json = new String(java.nio.file.Files.readAllBytes(sidecar.toPath()),
