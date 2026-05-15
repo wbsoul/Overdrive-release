@@ -158,10 +158,14 @@ public class FcmSender {
                     // the clip directly via the remote access tunnel.
                     String tunnelUrl = readTunnelUrl();
                     if (tunnelUrl != null) {
+                        String thumbUrl = tunnelUrl + "/thumb/" + fileName;
                         data.put("video_url", tunnelUrl + "/events.html?play=" + fileName);
                         // Include direct thumbnail URL — uses detection-frame sidecar if available,
                         // falls back to lazy video frame extraction via the /thumb/ endpoint.
-                        data.put("thumbnail_url", tunnelUrl + "/thumb/" + fileName);
+                        data.put("thumbnail_url", thumbUrl);
+                        // FCM v1: image field causes FCM to download + display the thumbnail
+                        // as a BigPictureStyle notification — no companion app code required.
+                        notification.put("image", thumbUrl);
                     }
                 } else {
                     data.put("action", "open_events");

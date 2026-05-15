@@ -1,6 +1,8 @@
 package com.overdrive.app.ui.adapter
 
 import android.graphics.Bitmap
+import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import android.media.MediaMetadataRetriever
 import android.view.LayoutInflater
 import android.view.View
@@ -81,18 +83,58 @@ class RecordingAdapter(
     
     inner class RecordingViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
         private val ivThumbnail: ImageView = itemView.findViewById(R.id.ivThumbnail)
-        private val tvCameraId: TextView = itemView.findViewById(R.id.tvCameraId)
+        private val tvTypeBadge: TextView = itemView.findViewById(R.id.tvTypeBadge)
+        private val tvAiBadge1: TextView = itemView.findViewById(R.id.tvAiBadge1)
+        private val tvAiBadge2: TextView = itemView.findViewById(R.id.tvAiBadge2)
+        private val tvAiBadge3: TextView = itemView.findViewById(R.id.tvAiBadge3)
+        private val tvFileName: TextView = itemView.findViewById(R.id.tvFileName)
+        private val tvDate: TextView = itemView.findViewById(R.id.tvDate)
         private val tvRecordingTime: TextView = itemView.findViewById(R.id.tvRecordingTime)
-        private val tvDuration: TextView = itemView.findViewById(R.id.tvDuration)
         private val tvSize: TextView = itemView.findViewById(R.id.tvSize)
         private val btnPlay: ImageButton = itemView.findViewById(R.id.btnPlay)
         private val btnDelete: ImageButton = itemView.findViewById(R.id.btnDelete)
         private val cbSelect: CheckBox = itemView.findViewById(R.id.cbSelect)
+
+        private val aiBadgeViews = listOf(tvAiBadge1, tvAiBadge2, tvAiBadge3)
         
         fun bind(recording: RecordingFile) {
-            tvCameraId.text = "C${recording.cameraId}"
+            // Type badge
+            tvTypeBadge.text = when (recording.type) {
+                RecordingFile.RecordingType.SENTRY    -> "SENTRY"
+                RecordingFile.RecordingType.PROXIMITY -> "PROXIMITY"
+                RecordingFile.RecordingType.NORMAL    -> "NORMAL"
+            }
+
+            // AI detection badges (person / car / bike with confidence %)
+            val detections = recording.aiDetections
+            aiBadgeViews.forEachIndexed { i, tv ->
+                val det = detections.getOrNull(i)
+                if (det != null) {
+                    val (icon, bgColor, fgColor) = when (det.type) {
+                        "person" -> Triple("🚶", Color.parseColor("#26EF4444"), Color.parseColor("#EF4444"))
+                        "car"    -> Triple("🚗", Color.parseColor("#263B82F6"), Color.parseColor("#3B82F6"))
+                        else     -> Triple("🚲", Color.parseColor("#26F97316"), Color.parseColor("#F97316"))
+                    }
+                    tv.text = if (det.confPct > 0) "$icon ${det.confPct}%" else icon
+                    tv.setTextColor(fgColor)
+                    val bg = GradientDrawable().apply {
+                        shape = GradientDrawable.RECTANGLE
+                        cornerRadius = 8f * itemView.context.resources.displayMetrics.density
+                        setColor(bgColor)
+                    }
+                    tv.background = bg
+                    tv.visibility = View.VISIBLE
+                } else {
+                    tv.visibility = View.GONE
+                }
+            }
+
+            // Filename
+            tvFileName.text = recording.name
+
+            // Meta row
+            tvDate.text = recording.formattedDate
             tvRecordingTime.text = recording.formattedTime
-            tvDuration.text = if (recording.durationMs > 0) recording.formattedDuration else "--:--"
             tvSize.text = recording.formattedSize
             
             // Load thumbnail
@@ -101,25 +143,17 @@ class RecordingAdapter(
             // Multi-select mode
             if (selectMode) {
                 cbSelect.visibility = View.VISIBLE
-                // Clear listener before setting checked state to prevent spurious callbacks during recycling
                 cbSelect.setOnCheckedChangeListener(null)
                 cbSelect.isChecked = recording.path in selectedItems
                 btnPlay.visibility = View.GONE
                 btnDelete.visibility = View.GONE
                 
                 cbSelect.setOnCheckedChangeListener { _, isChecked ->
-                    if (isChecked) {
-                        selectedItems.add(recording.path)
-                    } else {
-                        selectedItems.remove(recording.path)
-                    }
+                    if (isChecked) selectedItems.add(recording.path)
+                    else selectedItems.remove(recording.path)
                     onSelectionChanged?.invoke(selectedItems.size)
                 }
-                
-                itemView.setOnClickListener {
-                    cbSelect.isChecked = !cbSelect.isChecked
-                }
-                
+                itemView.setOnClickListener { cbSelect.isChecked = !cbSelect.isChecked }
                 itemView.setOnLongClickListener(null)
             } else {
                 cbSelect.setOnCheckedChangeListener(null)
@@ -130,8 +164,6 @@ class RecordingAdapter(
                 btnPlay.setOnClickListener { onPlay(recording) }
                 btnDelete.setOnClickListener { onDelete(recording) }
                 itemView.setOnClickListener { onPlay(recording) }
-                
-                // Long press to enter select mode
                 itemView.setOnLongClickListener {
                     enterSelectMode()
                     selectedItems.add(recording.path)
@@ -144,59 +176,39 @@ class RecordingAdapter(
         
         private fun loadThumbnail(recording: RecordingFile) {
             val path = recording.path
-            
-            // Check cache first
             if (thumbnailCache.containsKey(path)) {
                 val cached = thumbnailCache[path]
-                if (cached != null) {
-                    ivThumbnail.setImageBitmap(cached)
-                } else {
-                    ivThumbnail.setImageResource(R.color.surface_variant)
-                }
+                if (cached != null) ivThumbnail.setImageBitmap(cached)
+                else ivThumbnail.setImageResource(R.color.surface_variant)
                 return
             }
-            
-            // Set placeholder while loading
             ivThumbnail.setImageResource(R.color.surface_variant)
-            
-            // Load thumbnail async
             CoroutineScope(Dispatchers.IO).launch {
                 val thumbnail = extractThumbnail(path)
                 thumbnailCache[path] = thumbnail
-                
                 withContext(Dispatchers.Main) {
-                    // Only update if still showing same recording
                     if (bindingAdapterPosition != RecyclerView.NO_POSITION &&
-                        getItem(bindingAdapterPosition).path == path) {
-                        if (thumbnail != null) {
-                            ivThumbnail.setImageBitmap(thumbnail)
-                        }
+                        getItem(bindingAdapterPosition).path == path && thumbnail != null) {
+                        ivThumbnail.setImageBitmap(thumbnail)
                     }
                 }
             }
         }
         
         private fun extractThumbnail(path: String): Bitmap? {
-            // Prefer the detection-frame sidecar (.thumb.jpg) if available.
-            // It's written by SurveillanceEngineGpu at recording start and contains
-            // the exact YOLO detection frame with a bounding box overlay.
             val thumbFile = java.io.File(path.replace(".mp4", ".thumb.jpg"))
             if (thumbFile.exists() && thumbFile.length() > 0) {
                 try {
                     return android.graphics.BitmapFactory.decodeFile(thumbFile.absolutePath)
-                } catch (e: Exception) {
-                    // Fall through to video extraction
-                }
+                } catch (e: Exception) { /* fall through */ }
             }
             return try {
                 val retriever = MediaMetadataRetriever()
                 retriever.setDataSource(path)
-                val frame = retriever.getFrameAtTime(1_000_000) // 1 second in
+                val frame = retriever.getFrameAtTime(1_000_000)
                 retriever.release()
                 frame
-            } catch (e: Exception) {
-                null
-            }
+            } catch (e: Exception) { null }
         }
     }
     
@@ -205,12 +217,9 @@ class RecordingAdapter(
     }
     
     private class RecordingDiffCallback : DiffUtil.ItemCallback<RecordingFile>() {
-        override fun areItemsTheSame(oldItem: RecordingFile, newItem: RecordingFile): Boolean {
-            return oldItem.path == newItem.path
-        }
-        
-        override fun areContentsTheSame(oldItem: RecordingFile, newItem: RecordingFile): Boolean {
-            return oldItem == newItem
-        }
+        override fun areItemsTheSame(oldItem: RecordingFile, newItem: RecordingFile) =
+            oldItem.path == newItem.path
+        override fun areContentsTheSame(oldItem: RecordingFile, newItem: RecordingFile) =
+            oldItem == newItem
     }
 }

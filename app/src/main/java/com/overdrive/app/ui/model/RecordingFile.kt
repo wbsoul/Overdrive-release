@@ -7,6 +7,11 @@ import java.util.Date
 import java.util.Locale
 
 /**
+ * A single AI detection label and confidence from the event sidecar.
+ */
+data class AiDetection(val type: String, val confPct: Int)
+
+/**
  * Represents a recorded video file.
  * SOTA: Supports both direct file access and MediaStore content URIs.
  */
@@ -17,7 +22,8 @@ data class RecordingFile(
     val durationMs: Long,
     val sizeBytes: Long,
     val type: RecordingType,
-    val contentUri: Uri? = null  // SOTA: MediaStore content URI for cross-UID access
+    val contentUri: Uri? = null,  // SOTA: MediaStore content URI for cross-UID access
+    val aiDetections: List<AiDetection> = emptyList()
 ) {
     // Secondary constructor for MediaStore results
     constructor(
@@ -148,8 +154,60 @@ data class RecordingFile(
                 timestamp = timestamp,
                 durationMs = 0,
                 sizeBytes = file.length(),
-                type = RecordingType.SENTRY
+                type = RecordingType.SENTRY,
+                aiDetections = readAiDetections(file)
             )
+        }
+
+        /**
+         * Read AI detections from sidecar files alongside the MP4.
+         * Tries .ai.json (written at trigger time) first, then the full .json timeline sidecar.
+         * Returns detections in priority order: person, car, bike.
+         */
+        private fun readAiDetections(file: File): List<AiDetection> {
+            val base = file.name.removeSuffix(".mp4")
+            val dir = file.parentFile ?: return emptyList()
+
+            // --- Try .ai.json first (simple: {"type":"person","conf":87}) ---
+            val aiFile = File(dir, "$base.ai.json")
+            if (aiFile.exists() && aiFile.length() > 0) {
+                try {
+                    val json = org.json.JSONObject(aiFile.readText())
+                    val type = json.optString("type", "")
+                    val conf = json.optInt("conf", 0)
+                    if (type == "person" || type == "car" || type == "bike") {
+                        return listOf(AiDetection(type, conf))
+                    }
+                } catch (_: Exception) {}
+            }
+
+            // --- Fall back to full .json timeline sidecar ---
+            val sidecar = File(dir, "$base.json")
+            if (!sidecar.exists() || sidecar.length() == 0L) return emptyList()
+            return try {
+                val root = org.json.JSONObject(sidecar.readText())
+                val events = root.optJSONArray("events") ?: return emptyList()
+                val maxConf = mutableMapOf<String, Int>()
+                for (i in 0 until events.length()) {
+                    val ev = events.optJSONObject(i) ?: continue
+                    val t = ev.optString("type", "")
+                    if (t != "person" && t != "car" && t != "bike") continue
+                    val c = (ev.optDouble("maxConf", 0.0) * 100).toInt()
+                    if (c > (maxConf[t] ?: 0)) maxConf[t] = c
+                }
+                // Fallback from stats block if events had no conf values
+                val stats = root.optJSONObject("stats")
+                if (stats != null) {
+                    for (cls in listOf("person", "car", "bike")) {
+                        if (stats.optInt(cls, 0) > 0 && !maxConf.containsKey(cls)) {
+                            maxConf[cls] = 0
+                        }
+                    }
+                }
+                listOf("person", "car", "bike").mapNotNull { cls ->
+                    maxConf[cls]?.let { AiDetection(cls, it) }
+                }
+            } catch (_: Exception) { emptyList() }
         }
         
         private fun parseProximityRecording(file: File): RecordingFile? {

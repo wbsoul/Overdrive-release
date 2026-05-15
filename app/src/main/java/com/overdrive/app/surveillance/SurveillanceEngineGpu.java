@@ -1795,9 +1795,11 @@ public class SurveillanceEngineGpu {
                         }
                         
                         boolean hasActiveMotion = timeSinceMotion < 2000;
-                        // Always send to timeline — pre-trigger ring buffer captures
-                        // events before recording starts for the JSON sidecar.
-                        timelineCollector.onAiDetection(motionFiltered, hasActiveMotion, 1 << qIdx);
+                        // Always send to timeline — YOLO has already confirmed relevantCount > 0,
+                        // so we pass true unconditionally. The hasActiveMotion flag is kept only
+                        // for other downstream consumers; we must not silently drop AI events
+                        // from the JSON sidecar when motion timing causes hasActiveMotion=false.
+                        timelineCollector.onAiDetection(motionFiltered, true, 1 << qIdx);
                         
                         // Cross-quadrant tracking: assign persistent track IDs.
                         // The tracker expects bounding boxes in 320×240 quadrant pixel space.
@@ -2341,6 +2343,8 @@ public class SurveillanceEngineGpu {
         if (thumbFrame != null && thumbW > 0 && thumbH > 0) {
             final File thumbFile = new File(eventOutputDir,
                     fileName.replace(".mp4", ".thumb.jpg"));
+            final File aiFile = new File(eventOutputDir,
+                    fileName.replace(".mp4", ".ai.json"));
             aiExecutor.execute(() -> {
                 try {
                     android.graphics.Bitmap bmp = android.graphics.Bitmap.createBitmap(thumbW, thumbH,
@@ -2382,6 +2386,25 @@ public class SurveillanceEngineGpu {
                     mutable.recycle();
                     bmp.recycle();
                     logger.info("Detection thumbnail saved: " + thumbFile.getName());
+                    // Write .ai.json companion: detection type + confidence at trigger time.
+                    // This is a reliable fallback for the events listing API — the main JSON
+                    // sidecar is written at recording END, so there's a window where it may
+                    // not yet exist or may lack AI events due to timing. The .ai.json is
+                    // written immediately at trigger time from the YOLO detection that caused it.
+                    if (thumbBbox != null) {
+                        int cls = thumbBbox.getClassId();
+                        String aiType = null;
+                        if (cls == 0)                                      aiType = "person";
+                        else if (cls == 2 || cls == 5 || cls == 7)         aiType = "car";
+                        else if (cls == 1 || cls == 3)                     aiType = "bike";
+                        if (aiType != null) {
+                            int confPct = Math.round(thumbBbox.getConfidence() * 100);
+                            String aiJson = "{\"type\":\"" + aiType + "\",\"conf\":" + confPct + "}";
+                            try (java.io.FileOutputStream fos = new java.io.FileOutputStream(aiFile)) {
+                                fos.write(aiJson.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                            }
+                        }
+                    }
                 } catch (Exception e) {
                     logger.warn("Failed to write detection thumbnail: " + e.getMessage());
                 }

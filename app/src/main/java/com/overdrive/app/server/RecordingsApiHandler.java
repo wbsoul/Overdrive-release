@@ -539,6 +539,25 @@ public class RecordingsApiHandler {
                                 }
                             }
                         }
+                        // Fallback: check .ai.json companion (written at recording trigger time)
+                        // This covers events where the main sidecar has no AI events due to
+                        // hasActiveMotion timing — the .ai.json is written directly from the
+                        // YOLO detection that caused the recording trigger.
+                        if (maxConf.isEmpty()) {
+                            File aiFile = new File(file.getParentFile(), baseName + ".ai.json");
+                            if (aiFile.exists()) {
+                                try {
+                                    String aiJsonStr = new String(java.nio.file.Files.readAllBytes(aiFile.toPath()),
+                                            java.nio.charset.StandardCharsets.UTF_8);
+                                    org.json.JSONObject aiJson = new org.json.JSONObject(aiJsonStr);
+                                    String aiType = aiJson.optString("type", "");
+                                    int aiConf = aiJson.optInt("conf", 0);
+                                    if (aiType.equals("person") || aiType.equals("car") || aiType.equals("bike")) {
+                                        maxConf.put(aiType, aiConf / 100.0f);
+                                    }
+                                } catch (Exception ignored) {}
+                            }
+                        }
                         if (!maxConf.isEmpty()) {
                             org.json.JSONArray aiArr = new org.json.JSONArray();
                             // Emit in fixed priority order: person, car, bike

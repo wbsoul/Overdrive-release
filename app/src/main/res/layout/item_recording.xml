@@ -51,21 +51,6 @@
                 android:alpha="0.9"
                 android:contentDescription="Play" />
 
-            <!-- Recording type badge -->
-            <TextView
-                android:id="@+id/tvCameraId"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_gravity="top|start"
-                android:layout_margin="4dp"
-                android:background="@drawable/calendar_day_bg_selected"
-                android:paddingHorizontal="6dp"
-                android:paddingVertical="2dp"
-                android:textColor="@color/bg_base"
-                android:textSize="9sp"
-                android:fontFamily="sans-serif-medium"
-                tools:text="CAM1" />
-
         </FrameLayout>
 
         <!-- Recording Info -->
@@ -76,34 +61,113 @@
             android:layout_weight="1"
             android:orientation="vertical">
 
+            <!-- Row 1: Type badge + AI badges + filename -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <!-- Type badge: SENTRY / PROXIMITY / NORMAL -->
+                <TextView
+                    android:id="@+id/tvTypeBadge"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:background="@drawable/calendar_day_bg_selected"
+                    android:paddingHorizontal="6dp"
+                    android:paddingVertical="2dp"
+                    android:textColor="@color/bg_base"
+                    android:textSize="9sp"
+                    android:fontFamily="sans-serif-medium"
+                    android:textAllCaps="true"
+                    tools:text="SENTRY" />
+
+                <!-- AI detection badges (person / car / bike) — shown only for sentry events -->
+                <TextView
+                    android:id="@+id/tvAiBadge1"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="4dp"
+                    android:paddingHorizontal="5dp"
+                    android:paddingVertical="2dp"
+                    android:textSize="9sp"
+                    android:fontFamily="sans-serif-medium"
+                    android:visibility="gone"
+                    tools:text="🚶 87%" />
+
+                <TextView
+                    android:id="@+id/tvAiBadge2"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="4dp"
+                    android:paddingHorizontal="5dp"
+                    android:paddingVertical="2dp"
+                    android:textSize="9sp"
+                    android:fontFamily="sans-serif-medium"
+                    android:visibility="gone"
+                    tools:text="🚗 65%" />
+
+                <TextView
+                    android:id="@+id/tvAiBadge3"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="4dp"
+                    android:paddingHorizontal="5dp"
+                    android:paddingVertical="2dp"
+                    android:textSize="9sp"
+                    android:fontFamily="sans-serif-medium"
+                    android:visibility="gone"
+                    tools:text="🚲 42%" />
+
+            </LinearLayout>
+
+            <!-- Row 2: Filename -->
             <TextView
-                android:id="@+id/tvRecordingTime"
+                android:id="@+id/tvFileName"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
+                android:layout_marginTop="3dp"
                 android:textColor="@color/text_primary"
-                android:textSize="15sp"
-                android:fontFamily="sans-serif-medium"
-                tools:text="12:34:56" />
+                android:textSize="13sp"
+                android:fontFamily="monospace"
+                android:singleLine="true"
+                android:ellipsize="end"
+                tools:text="event_20260515_134544.mp4" />
 
+            <!-- Row 3: Date · Time · Size -->
             <LinearLayout
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
+                android:layout_marginTop="3dp"
                 android:orientation="horizontal"
                 android:gravity="center_vertical">
 
                 <TextView
-                    android:id="@+id/tvDuration"
+                    android:id="@+id/tvDate"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:textColor="@color/text_secondary"
-                    android:textSize="12sp"
-                    tools:text="5:30" />
+                    android:textSize="11sp"
+                    tools:text="May 15, 2026" />
 
                 <View
                     android:layout_width="3dp"
                     android:layout_height="3dp"
-                    android:layout_marginHorizontal="8dp"
+                    android:layout_marginHorizontal="6dp"
+                    android:background="@drawable/recording_indicator_dot" />
+
+                <TextView
+                    android:id="@+id/tvRecordingTime"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="11sp"
+                    tools:text="1:45 PM" />
+
+                <View
+                    android:layout_width="3dp"
+                    android:layout_height="3dp"
+                    android:layout_marginHorizontal="6dp"
                     android:background="@drawable/recording_indicator_dot" />
 
                 <TextView
@@ -111,8 +175,8 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:textColor="@color/text_secondary"
-                    android:textSize="12sp"
-                    tools:text="125 MB" />
+                    android:textSize="11sp"
+                    tools:text="10.3 MB" />
 
             </LinearLayout>
 
