@@ -123,6 +123,13 @@ public class SurveillanceEngineGpu {
     // Best AI classification from the last confirmed detection — used to label FCM notifications
     private volatile String lastConfirmedAiLabel = "motion";
     private volatile float lastConfirmedAiConfidence = 1.0f;
+    // Detection frame thumbnail: raw RGB bytes of the frame YOLO ran on when it confirmed an object.
+    // Saved as a .thumb.jpg sidecar at recording start — provides a much more meaningful thumbnail
+    // than a random video frame extracted by MediaMetadataRetriever.
+    private volatile byte[] pendingDetectionFrame = null;  // RGB bytes
+    private volatile int pendingDetectionFrameW = 0;
+    private volatile int pendingDetectionFrameH = 0;
+    private volatile com.overdrive.app.ai.Detection pendingDetectionBbox = null;  // best detection box (nullable)
 
     // Detection mode
     private boolean useObjectDetection = false;
@@ -1771,6 +1778,15 @@ public class SurveillanceEngineGpu {
                             else if (cls == 1 || cls == 3) lastConfirmedAiLabel = "bike";
                             else lastConfirmedAiLabel = "motion";
                             lastConfirmedAiConfidence = bestForLabel.getConfidence();
+                            // Capture detection frame for thumbnail sidecar.
+                            // cropData is the exact RGB frame YOLO ran on (qW×qH).
+                            // Store it so startRecording() can write a .thumb.jpg sidecar.
+                            byte[] frameCopy = new byte[cropData.length];
+                            System.arraycopy(cropData, 0, frameCopy, 0, cropData.length);
+                            pendingDetectionFrame = frameCopy;
+                            pendingDetectionFrameW = qW;
+                            pendingDetectionFrameH = qH;
+                            pendingDetectionBbox = bestForLabel;
                         }
                         
                         long timeSinceMotion = System.currentTimeMillis() - lastMotionTime;
@@ -2314,6 +2330,64 @@ public class SurveillanceEngineGpu {
         logger.info(String.format("Pre-record: %d sec, Post-record: %d sec", 
                 preRecordMs / 1000, postRecordMs / 1000));
         
+        // Write detection-frame thumbnail sidecar (.thumb.jpg) alongside the MP4.
+        // This gives a far more meaningful thumbnail than a random video frame — it's
+        // exactly the frame YOLO ran on when it confirmed the threat object.
+        final byte[] thumbFrame = pendingDetectionFrame;
+        final int thumbW = pendingDetectionFrameW;
+        final int thumbH = pendingDetectionFrameH;
+        final com.overdrive.app.ai.Detection thumbBbox = pendingDetectionBbox;
+        pendingDetectionFrame = null;  // release reference; keep detection label/confidence
+        if (thumbFrame != null && thumbW > 0 && thumbH > 0) {
+            final File thumbFile = new File(eventOutputDir,
+                    fileName.replace(".mp4", ".thumb.jpg"));
+            aiExecutor.execute(() -> {
+                try {
+                    android.graphics.Bitmap bmp = android.graphics.Bitmap.createBitmap(thumbW, thumbH,
+                            android.graphics.Bitmap.Config.ARGB_8888);
+                    int[] pixels = new int[thumbW * thumbH];
+                    for (int i = 0; i < pixels.length; i++) {
+                        int r = thumbFrame[i * 3] & 0xFF;
+                        int g = thumbFrame[i * 3 + 1] & 0xFF;
+                        int b = thumbFrame[i * 3 + 2] & 0xFF;
+                        pixels[i] = 0xFF000000 | (r << 16) | (g << 8) | b;
+                    }
+                    bmp.setPixels(pixels, 0, thumbW, 0, 0, thumbW, thumbH);
+                    // Draw bounding box overlay on a mutable copy
+                    android.graphics.Bitmap mutable = bmp.copy(android.graphics.Bitmap.Config.ARGB_8888, true);
+                    if (thumbBbox != null) {
+                        android.graphics.Canvas canvas = new android.graphics.Canvas(mutable);
+                        android.graphics.Paint paint = new android.graphics.Paint();
+                        paint.setStyle(android.graphics.Paint.Style.STROKE);
+                        paint.setStrokeWidth(Math.max(2, thumbW / 100));
+                        paint.setColor(android.graphics.Color.argb(220, 0, 220, 80));  // green
+                        float scaleX = (float) thumbW / thumbW;  // 1 — bbox already in crop space
+                        float scaleY = (float) thumbH / thumbH;
+                        canvas.drawRect(
+                                thumbBbox.getX() * scaleX,
+                                thumbBbox.getY() * scaleY,
+                                (thumbBbox.getX() + thumbBbox.getW()) * scaleX,
+                                (thumbBbox.getY() + thumbBbox.getH()) * scaleY,
+                                paint);
+                    }
+                    // Scale to standard thumbnail dimensions
+                    android.graphics.Bitmap scaled = android.graphics.Bitmap.createScaledBitmap(
+                            mutable, 320, 180, true);
+                    java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
+                    scaled.compress(android.graphics.Bitmap.CompressFormat.JPEG, 85, baos);
+                    try (java.io.FileOutputStream fos = new java.io.FileOutputStream(thumbFile)) {
+                        fos.write(baos.toByteArray());
+                    }
+                    scaled.recycle();
+                    mutable.recycle();
+                    bmp.recycle();
+                    logger.info("Detection thumbnail saved: " + thumbFile.getName());
+                } catch (Exception e) {
+                    logger.warn("Failed to write detection thumbnail: " + e.getMessage());
+                }
+            });
+        }
+        
         // Trigger event recording (flushes pre-record buffer)
         recorder.triggerEventRecording(currentEventFile.getAbsolutePath(), postRecordMs);
         recording = true;
@@ -2376,6 +2450,8 @@ public class SurveillanceEngineGpu {
         }
         
         currentEventFile = null;
+        pendingDetectionFrame = null;
+        pendingDetectionBbox = null;
         logger.info("Recording stopped, motion detection continues");
     }
     

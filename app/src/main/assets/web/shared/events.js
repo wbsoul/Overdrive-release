@@ -343,6 +343,17 @@ BYD.events = {
                 ? 'BYD.events.toggleFileSelection(\'' + rec.filename + '\')'
                 : 'BYD.events.playVideo(\'' + rec.filename + '\')';
             
+            // Build AI detection badges for sentry events
+            let aiHtml = '';
+            if (rec.type === 'sentry' && rec.aiDetections && rec.aiDetections.length > 0) {
+                const icons = { person: '🚶', car: '🚗', bike: '🚲' };
+                aiHtml = rec.aiDetections.map(d =>
+                    '<span class="ai-badge ai-badge--' + d.type + '">' +
+                    icons[d.type] + (d.conf > 0 ? '\u202F' + d.conf + '%' : '') +
+                    '</span>'
+                ).join('');
+            }
+            
             return '<div class="recording-card' + (isSelected ? ' selected' : '') + '" data-filename="' + rec.filename + '" onclick="' + cardClick + '">' +
                 checkbox +
                 '<div class="recording-thumbnail" id="' + thumbId + '" data-thumb="' + (rec.thumbnailUrl || '') + '">' +
@@ -351,7 +362,7 @@ BYD.events = {
                 (rec.duration ? '<span class="duration-badge">' + rec.duration + '</span>' : '') +
                 '</div>' +
                 '<div class="recording-info">' +
-                '<div class="recording-name"><span class="recording-badge ' + rec.type + '">' + badge + '</span>' + fname + '</div>' +
+                '<div class="recording-name"><span class="recording-badge ' + rec.type + '">' + badge + '</span>' + aiHtml + fname + '</div>' +
                 '<div class="recording-meta"><span>' + rec.dateFormatted + '</span><span>' + rec.timeFormatted + '</span><span>' + rec.sizeFormatted + '</span></div>' +
                 '</div>' +
                 (this.selectMode ? '' : 

@@ -159,6 +159,9 @@ public class FcmSender {
                     String tunnelUrl = readTunnelUrl();
                     if (tunnelUrl != null) {
                         data.put("video_url", tunnelUrl + "/events.html?play=" + fileName);
+                        // Include direct thumbnail URL — uses detection-frame sidecar if available,
+                        // falls back to lazy video frame extraction via the /thumb/ endpoint.
+                        data.put("thumbnail_url", tunnelUrl + "/thumb/" + fileName);
                     }
                 } else {
                     data.put("action", "open_events");

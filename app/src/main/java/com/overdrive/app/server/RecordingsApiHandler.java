@@ -180,14 +180,28 @@ public class RecordingsApiHandler {
         String thumbName = filename.replace(".mp4", ".jpg");
         File thumbFile = new File(cacheDir, thumbName);
         
+        // Prefer the detection-frame sidecar (.thumb.jpg stored alongside the MP4).
+        // It was written by SurveillanceEngineGpu at recording start and shows the actual
+        // YOLO detection frame with bounding box overlay — far more meaningful than a
+        // random video frame extracted by MediaMetadataRetriever.
+        File detectionThumb = null;
+        File videoFile = findVideoFile(filename);
+        if (videoFile != null) {
+            detectionThumb = new File(videoFile.getParentFile(),
+                    filename.replace(".mp4", ".thumb.jpg"));
+        }
+        if (detectionThumb != null && detectionThumb.exists() && detectionThumb.length() > 0) {
+            HttpResponse.sendImage(out, detectionThumb, "image/jpeg");
+            return;
+        }
+        
         // If cached thumbnail exists and is valid, serve it immediately
         if (thumbFile.exists() && thumbFile.length() > 0) {
             HttpResponse.sendImage(out, thumbFile, "image/jpeg");
             return;
         }
         
-        // Find the source video file
-        File videoFile = findVideoFile(filename);
+        // Find the source video file (reuse the reference obtained above)
         if (videoFile == null) {
             HttpResponse.sendError(out, 404, "Video not found: " + filename);
             return;
@@ -489,6 +503,58 @@ public class RecordingsApiHandler {
             
             // Thumbnail URL - server generates thumbnail from video
             rec.put("thumbnailUrl", "/thumb/" + name);
+            
+            // For sentry events, read the JSON sidecar to extract per-class AI detections.
+            // Exposed as aiDetections: [{type:"person",conf:0.87},{type:"car",conf:0.65}]
+            // Used by the event listing UI to show coloured detection badges.
+            if (type.equals("sentry")) {
+                String baseName = name.endsWith(".mp4") ? name.substring(0, name.length() - 4) : name;
+                File sidecar = new File(file.getParentFile(), baseName + ".json");
+                if (sidecar.exists()) {
+                    try {
+                        String json = new String(java.nio.file.Files.readAllBytes(sidecar.toPath()),
+                                java.nio.charset.StandardCharsets.UTF_8);
+                        org.json.JSONObject sidecarJson = new org.json.JSONObject(json);
+                        org.json.JSONObject stats = sidecarJson.optJSONObject("stats");
+                        org.json.JSONArray events = sidecarJson.optJSONArray("events");
+                        // Build per-class max-confidence map from event spans
+                        java.util.Map<String, Float> maxConf = new java.util.HashMap<>();
+                        if (events != null) {
+                            for (int i = 0; i < events.length(); i++) {
+                                org.json.JSONObject ev = events.optJSONObject(i);
+                                if (ev == null) continue;
+                                String evType = ev.optString("type", "");
+                                double conf = ev.optDouble("maxConf", 0);
+                                if ((evType.equals("person") || evType.equals("car") || evType.equals("bike"))
+                                        && conf > maxConf.getOrDefault(evType, 0f)) {
+                                    maxConf.put(evType, (float) conf);
+                                }
+                            }
+                        }
+                        // Fallback: if stats says count > 0 but no conf in events, include without conf
+                        if (stats != null) {
+                            for (String cls : new String[]{"person", "car", "bike"}) {
+                                if (stats.optInt(cls, 0) > 0 && !maxConf.containsKey(cls)) {
+                                    maxConf.put(cls, 0f);
+                                }
+                            }
+                        }
+                        if (!maxConf.isEmpty()) {
+                            org.json.JSONArray aiArr = new org.json.JSONArray();
+                            // Emit in fixed priority order: person, car, bike
+                            for (String cls : new String[]{"person", "car", "bike"}) {
+                                if (maxConf.containsKey(cls)) {
+                                    org.json.JSONObject entry = new org.json.JSONObject();
+                                    entry.put("type", cls);
+                                    entry.put("conf", Math.round(maxConf.get(cls) * 100));
+                                    aiArr.put(entry);
+                                }
+                            }
+                            rec.put("aiDetections", aiArr);
+                        }
+                    } catch (Exception ignored) {}
+                }
+            }
             
             return rec;
         } catch (Exception e) {

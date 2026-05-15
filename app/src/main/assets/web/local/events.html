@@ -576,6 +576,34 @@
             color: #fb923c;
         }
         
+        /* AI detection badges: shown next to Sentry badge when YOLO confirmed an object */
+        .ai-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 1px;
+            font-size: 10px;
+            font-weight: 700;
+            padding: 2px 6px;
+            border-radius: 4px;
+            letter-spacing: 0.01em;
+            white-space: nowrap;
+        }
+        .ai-badge--person {
+            background: rgba(239, 68, 68, 0.15);
+            color: #ef4444;
+            border: 1px solid rgba(239, 68, 68, 0.3);
+        }
+        .ai-badge--car {
+            background: rgba(59, 130, 246, 0.15);
+            color: #3b82f6;
+            border: 1px solid rgba(59, 130, 246, 0.3);
+        }
+        .ai-badge--bike {
+            background: rgba(249, 115, 22, 0.15);
+            color: #f97316;
+            border: 1px solid rgba(249, 115, 22, 0.3);
+        }
+        
         .recording-meta {
             font-size: 11px;
             color: var(--text-muted);

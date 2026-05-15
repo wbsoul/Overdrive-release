@@ -177,6 +177,17 @@ class RecordingAdapter(
         }
         
         private fun extractThumbnail(path: String): Bitmap? {
+            // Prefer the detection-frame sidecar (.thumb.jpg) if available.
+            // It's written by SurveillanceEngineGpu at recording start and contains
+            // the exact YOLO detection frame with a bounding box overlay.
+            val thumbFile = java.io.File(path.replace(".mp4", ".thumb.jpg"))
+            if (thumbFile.exists() && thumbFile.length() > 0) {
+                try {
+                    return android.graphics.BitmapFactory.decodeFile(thumbFile.absolutePath)
+                } catch (e: Exception) {
+                    // Fall through to video extraction
+                }
+            }
             return try {
                 val retriever = MediaMetadataRetriever()
                 retriever.setDataSource(path)
