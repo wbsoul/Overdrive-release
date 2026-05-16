@@ -208,8 +208,8 @@ android {
         applicationId = "com.overdrive.app"
         minSdk = 25
         targetSdk = 25
-        versionCode = 5
-        versionName = "poc 1.04"
+        versionCode = 6
+        versionName = "poc 1.05"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         
         // Note: abiFilters removed - using splits.abi instead for size optimization

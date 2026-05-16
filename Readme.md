@@ -218,6 +218,15 @@ If you want to use Zrok tunneling for remote access, you need your own Zrok invi
 
 ## Changelog
 
+### POC 1.05 — May 2026: Surveillance Settings Persistence Fix
+
+**🐛 Bug Fixes**
+- **Settings Not Loading on Restart** — `GET_CONFIG` response was missing `notifyIfNoObjectDetected`, `minConfidencePerson`, `minConfidenceCar`, `minConfidenceBike`, and `schedulingEnabled` — all four controls reset to defaults every app restart
+- **scheduleEnabled Key Mismatch** — Daemon returned `"scheduleEnabled"` but the ViewModel read `"schedulingEnabled"`, so the schedule toggle was always off after restart
+- **Per-Class Confidence Not Persisted** — `SET_CONFIG` in `applyConfig()` ignored `notifyIfNoObjectDetected` and per-class confidence fields — changes were applied in-memory but never written to the config file, lost on next restart
+
+---
+
 ### POC 1.04 — May 2026: FCM Notification Thumbnail Fix
 
 **🐛 Bug Fixes**

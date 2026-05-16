@@ -576,6 +576,35 @@ public class SurveillanceIpcServer implements Runnable {
                 logger.info("Object filters applied (sentry " + (sentry != null ? "running" : "not running") + ")");
             }
             
+            // Handle notifyIfNoObjectDetected and per-class confidence thresholds.
+            // These feed into the same setObjectFilters 8-arg overload on the engine.
+            if (config.has("notifyIfNoObjectDetected") || config.has("minConfidencePerson")
+                    || config.has("minConfidenceCar") || config.has("minConfidenceBike")) {
+                boolean notify = config.optBoolean("notifyIfNoObjectDetected",
+                        sentryConfig.isNotifyIfNoObjectDetected());
+                float confPerson = (float) config.optDouble("minConfidencePerson",
+                        sentryConfig.getMinConfidencePerson());
+                float confCar = (float) config.optDouble("minConfidenceCar",
+                        sentryConfig.getMinConfidenceCar());
+                float confBike = (float) config.optDouble("minConfidenceBike",
+                        sentryConfig.getMinConfidenceBike());
+                
+                sentryConfig.setNotifyIfNoObjectDetected(notify);
+                sentryConfig.setMinConfidencePerson(confPerson);
+                sentryConfig.setMinConfidenceCar(confCar);
+                sentryConfig.setMinConfidenceBike(confBike);
+                
+                if (sentry != null) {
+                    sentry.setObjectFilters(
+                        sentryConfig.getMinObjectSize(), sentryConfig.getAiConfidence(),
+                        sentryConfig.isDetectPerson(), sentryConfig.isDetectCar(), sentryConfig.isDetectBike(),
+                        notify, confPerson, confCar, confBike);
+                }
+                configChanged = true;
+                logger.info(String.format("notifyIfNoObject=%b, perClassConf: person=%.2f car=%.2f bike=%.2f",
+                    notify, confPerson, confCar, confBike));
+            }
+            
             // Handle pre/post record seconds
             if (config.has("preRecordSeconds") || config.has("preEventBufferSeconds")) {
                 int preRecordSeconds = config.has("preRecordSeconds") 
@@ -953,7 +982,7 @@ public class SurveillanceIpcServer implements Runnable {
         config.put("noiseThreshold", 0.0001);
         config.put("lightThreshold", 0.4);
         config.put("aiEnabled", true);
-        config.put("scheduleEnabled", false);
+        config.put("schedulingEnabled", false);
         config.put("bitrate", SystemDaemon.getRecordingBitrate());
         config.put("codec", SystemDaemon.getRecordingCodec());
         
@@ -1025,6 +1054,11 @@ public class SurveillanceIpcServer implements Runnable {
                 distanceLevel = 5;  // ~15m (far)
             }
             config.put("distance", distanceLevel);
+            config.put("notifyIfNoObjectDetected", sentryConfig.isNotifyIfNoObjectDetected());
+            config.put("minConfidencePerson", sentryConfig.getMinConfidencePerson());
+            config.put("minConfidenceCar", sentryConfig.getMinConfidenceCar());
+            config.put("minConfidenceBike", sentryConfig.getMinConfidenceBike());
+            config.put("schedulingEnabled", sentryConfig.getSchedule().isEnabled());
         } else {
             // Defaults when no config available
             config.put("sensitivity", 3);  // Default (slider value 1-5)
@@ -1039,6 +1073,10 @@ public class SurveillanceIpcServer implements Runnable {
             config.put("postEventBufferSeconds", 10);
             config.put("blockSensitivity", 0.04);
             config.put("requiredActiveBlocks", 2);
+            config.put("notifyIfNoObjectDetected", true);
+            config.put("minConfidencePerson", 0.25);
+            config.put("minConfidenceCar", 0.25);
+            config.put("minConfidenceBike", 0.25);
         }
         
         // SOTA: Add lastModified timestamp for web UI sync detection
