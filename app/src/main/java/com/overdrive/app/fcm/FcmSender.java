@@ -67,6 +67,10 @@ public class FcmSender {
     private static String cachedAccessToken = null;
     private static long tokenExpiryMs = 0L;
 
+    // Last known tunnel URL — cached so that transient file absence doesn't silently drop
+    // video_url/thumbnail_url from notifications (e.g. tunnel restarting, file not yet written).
+    private static volatile String lastKnownTunnelUrl = null;
+
     private FcmSender() {}
     public static void init(Context context) {
         if (context != null) {
@@ -107,6 +111,9 @@ public class FcmSender {
     }
 
     public static void notifyTunnelUrl(String url, boolean isNew) {
+        if (url != null && !url.isEmpty()) {
+            lastKnownTunnelUrl = url; // seed cache immediately — don't wait for file I/O
+        }
         sendAsync(isNew ? "Tunnel Connected" : "Tunnel URL Changed", url, "tunnel");
     }
 
@@ -174,6 +181,8 @@ public class FcmSender {
                         androidNotification.put("image", thumbUrl);
                         androidConfig = new JSONObject();
                         androidConfig.put("notification", androidNotification);
+                    } else {
+                        Log.w(TAG, "FCM [" + eventType + "]: tunnel URL unavailable — video_url/thumbnail_url omitted from payload");
                     }
                 } else {
                     data.put("action", "open_events");
@@ -339,15 +348,87 @@ public class FcmSender {
     }
 
     private static String readTunnelUrl() {
+        // 1. Try the URL file written by the Telegram bot daemon when the tunnel starts.
         try {
             java.io.File f = new java.io.File(com.overdrive.app.daemon.proxy.Enc.TELEGRAM_URL_FILE);
-            if (!f.exists()) return null;
-            java.util.Scanner scanner = new java.util.Scanner(f);
-            String url = scanner.hasNextLine() ? scanner.nextLine().trim() : null;
-            scanner.close();
-            return (url != null && !url.isEmpty()) ? url : null;
+            if (f.exists()) {
+                java.util.Scanner scanner = new java.util.Scanner(f);
+                String url = scanner.hasNextLine() ? scanner.nextLine().trim() : null;
+                scanner.close();
+                if (url != null && !url.isEmpty()) {
+                    lastKnownTunnelUrl = url; // keep cache fresh
+                    return url;
+                }
+            }
         } catch (Exception e) {
-            Log.w(TAG, "Could not read tunnel URL: " + e.getMessage());
+            Log.w(TAG, "Could not read tunnel URL file: " + e.getMessage());
+        }
+
+        // 2. File absent or empty — probe cloudflared / zrok logs directly.
+        //    This fires when the tunnel was started by something other than the Telegram bot
+        //    command (e.g. survived a daemon restart, started manually, or the file was cleared
+        //    on reboot). Matches the same grep logic used by DaemonCommandHandler.
+        String probed = probeTunnelUrlFromLogs();
+        if (probed != null) {
+            lastKnownTunnelUrl = probed;
+            // Persist so the next call (and other code) can find it via the file.
+            try {
+                java.io.FileWriter fw = new java.io.FileWriter(
+                        com.overdrive.app.daemon.proxy.Enc.TELEGRAM_URL_FILE);
+                fw.write(probed);
+                fw.close();
+            } catch (Exception ignored) {} // best-effort write
+            return probed;
+        }
+
+        // 3. Fall back to the last URL seen in this process lifetime.
+        if (lastKnownTunnelUrl != null) {
+            Log.d(TAG, "Tunnel URL file absent — using cached URL: " + lastKnownTunnelUrl);
+        } else {
+            Log.w(TAG, "Tunnel URL unavailable: file absent and no active cloudflared/zrok log found");
+        }
+        return lastKnownTunnelUrl;
+    }
+
+    /**
+     * Probes running tunnel process logs for a live URL.
+     * Checks cloudflared first (trycloudflare.com), then zrok (share.zrok.io).
+     */
+    private static String probeTunnelUrlFromLogs() {
+        // cloudflared
+        String url = grepFirstMatch(
+                "/data/local/tmp/cloudflared.log",
+                "https://[a-z0-9-]+\\.trycloudflare\\.com");
+        if (url != null) {
+            Log.d(TAG, "Tunnel URL probed from cloudflared log: " + url);
+            return url;
+        }
+        // zrok
+        url = grepFirstMatch(
+                "/data/local/tmp/zrok.log",
+                "https://[a-z0-9]+\\.share\\.zrok\\.io");
+        if (url != null) {
+            Log.d(TAG, "Tunnel URL probed from zrok log: " + url);
+            return url;
+        }
+        return null;
+    }
+
+    /** Runs grep on a file and returns the first matching token, or null. */
+    private static String grepFirstMatch(String filePath, String pattern) {
+        try {
+            java.io.File f = new java.io.File(filePath);
+            if (!f.exists()) return null;
+            Process p = Runtime.getRuntime().exec(
+                    new String[]{"sh", "-c",
+                            "grep -o '" + pattern + "' '" + filePath + "' 2>/dev/null | head -1"});
+            java.io.BufferedReader reader = new java.io.BufferedReader(
+                    new java.io.InputStreamReader(p.getInputStream()));
+            String line = reader.readLine();
+            reader.close();
+            p.waitFor();
+            return (line != null && !line.trim().isEmpty()) ? line.trim() : null;
+        } catch (Exception e) {
             return null;
         }
     }

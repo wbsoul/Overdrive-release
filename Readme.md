@@ -218,12 +218,13 @@ If you want to use Zrok tunneling for remote access, you need your own Zrok invi
 
 ## Changelog
 
-### POC 1.05 — May 2026: Surveillance Settings Persistence Fix
+### POC 1.05 — May 2026: Surveillance Settings Persistence Fix & FCM Tunnel URL Fix
 
 **🐛 Bug Fixes**
 - **Settings Not Loading on Restart** — `GET_CONFIG` response was missing `notifyIfNoObjectDetected`, `minConfidencePerson`, `minConfidenceCar`, `minConfidenceBike`, and `schedulingEnabled` — all four controls reset to defaults every app restart
 - **scheduleEnabled Key Mismatch** — Daemon returned `"scheduleEnabled"` but the ViewModel read `"schedulingEnabled"`, so the schedule toggle was always off after restart
 - **Per-Class Confidence Not Persisted** — `SET_CONFIG` in `applyConfig()` ignored `notifyIfNoObjectDetected` and per-class confidence fields — changes were applied in-memory but never written to the config file, lost on next restart
+- **FCM Notifications Missing video_url / thumbnail_url** — `video_url`, `thumbnail_url`, and `notification.image` were silently dropped from the FCM payload when the tunnel URL file (`/data/local/tmp/tunnel_url.txt`) was absent. The file was only written when the tunnel was started via a Telegram bot command; if cloudflared/zrok was already running (survived a daemon restart or started another way) the file was never written. Fixed with a three-layer fallback: (1) read the file if present, (2) probe `cloudflared.log` / `zrok.log` directly and re-persist the URL, (3) use the last URL seen in-process since startup
 
 ---
 
