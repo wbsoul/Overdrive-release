@@ -155,14 +155,15 @@ public class RecordingsApiHandler {
         return handle(method, path, body, out);
     }
     
-    // Background thumbnail generator
+    // Background thumbnail generator (kept for preemptive generation from listings)
     private static final java.util.concurrent.ExecutorService thumbExecutor = 
         java.util.concurrent.Executors.newSingleThreadExecutor();
     private static final Set<String> pendingThumbs = java.util.Collections.synchronizedSet(new HashSet<>());
     
     /**
      * Serve a cached thumbnail for a video file.
-     * Returns placeholder immediately if not cached, generates in background.
+     * Generates synchronously on first request so FCM image downloads always get a real JPEG.
+     * Background generation is only used for pre-warming the cache from the recordings listing.
      */
     private static void serveThumbnail(OutputStream out, String filename) throws Exception {
         // Security: prevent path traversal
@@ -207,36 +208,17 @@ public class RecordingsApiHandler {
             return;
         }
         
-        // Queue background generation if not already pending
-        if (!pendingThumbs.contains(filename)) {
-            pendingThumbs.add(filename);
-            final File vf = videoFile;
-            final File tf = thumbFile;
-            final String fn = filename;
-            thumbExecutor.submit(() -> {
-                try {
-                    byte[] data = generateThumbnail(vf);
-                    if (data != null) {
-                        try (FileOutputStream fos = new FileOutputStream(tf)) {
-                            fos.write(data);
-                        }
-                    }
-                } catch (Exception e) {
-                    SystemDaemon.log("Background thumb gen failed: " + e.getMessage());
-                } finally {
-                    pendingThumbs.remove(fn);
-                }
-            });
+        // Generate synchronously — FCM image downloads are a one-shot attempt;
+        // a 202 or non-image response means no thumbnail in the notification.
+        byte[] data = generateThumbnail(videoFile);
+        if (data != null) {
+            try (FileOutputStream fos = new FileOutputStream(thumbFile)) {
+                fos.write(data);
+            } catch (Exception ignored) {}
+            HttpResponse.sendImageBytes(out, data, "image/jpeg");
+        } else {
+            HttpResponse.sendError(out, 404, "Thumbnail generation failed");
         }
-        
-        // Return 202 Accepted with retry hint - client should retry
-        String headers = "HTTP/1.1 202 Accepted\r\n" +
-                        "Content-Type: application/json\r\n" +
-                        "Retry-After: 1\r\n" +
-                        "Connection: close\r\n\r\n";
-        out.write(headers.getBytes());
-        out.write("{\"status\":\"generating\"}".getBytes());
-        out.flush();
     }
     
     /**

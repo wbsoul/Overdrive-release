@@ -218,6 +218,45 @@ If you want to use Zrok tunneling for remote access, you need your own Zrok invi
 
 ## Changelog
 
+### POC 1.04 — May 2026: FCM Notification Thumbnail Fix
+
+**🐛 Bug Fixes**
+- **FCM Thumbnail — Synchronous Generation** — The `/thumb/` endpoint previously returned `HTTP 202 Accepted` + JSON when a thumbnail was not yet cached. FCM's image downloader makes a single attempt; a non-200 or non-image response means the image is silently dropped. The endpoint now generates the JPEG synchronously and always returns a real image on first request
+- **FCM Thumbnail — Android Platform Override** — Added `android.notification.image` to the FCM payload alongside the existing `notification.image`. The top-level field is the cross-platform FCM field; the Android-specific platform field is what actually triggers `BigPictureStyle` rendering on Android devices
+
+---
+
+### POC 1.03 — May 2026: Portal AI Badges Fix & FCM Thumbnail Auth
+
+**🐛 Bug Fixes**
+- **Portal AI Badges (No-Sidecar Fallback)** — `RecordingsApiHandler.parseRecording()` now reads `.ai.json` even when the `.json` sidecar does not exist yet. Previously, AI detection data was only loaded as a fallback if the `.json` sidecar was present — recordings that were still in-progress (sidecar not yet written at end) showed no badges in the portal
+- **FCM Thumbnail Auth** — Added `/thumb/` to `AuthMiddleware.PUBLIC_PREFIXES` so FCM servers can fetch thumbnail images without a JWT. Previously FCM's one-shot image downloader received a 401 and silently dropped the image from the notification
+- **Portal AI Badge Size** — Bumped `.ai-badge` CSS `font-size` from `10px` to `13px` for readable emoji rendering in the event listing
+
+---
+
+### POC 1.02 — May 2026: AI Badges Fix & Android GUI Events Parity
+
+**🐛 Bug Fixes**
+- **AI Badges Fix (hasActiveMotion Gate)** — Removed async `hasActiveMotion` gate that was silently dropping YOLO events from `.json` sidecars, causing AI badges to never appear in the portal event listing
+- **AI Badges Fix (.ai.json Fallback)** — `RecordingsApiHandler` now falls back to the `.ai.json` sidecar when the `.json` events file exists but contains no AI detections
+
+**✨ New Features**
+- **Android GUI Events Parity** — Rewrote `RecordingAdapter.kt` to match the portal's event card layout: recording type badge (sentry/ACC/manual), AI detection badges (person/car/bike with confidence %), filename, date, time, and file size
+  - Badge colours: person = red `#EF4444`, car = blue `#3B82F6`, bike = orange `#F97316`, each with 15% alpha background and 6dp rounded corners
+  - Badge format: emoji + narrow-no-break-space + confidence% (e.g. `🚶 87%`)
+- **FCM Notification Thumbnail** — Added `notification.image` field to FCM V1 payload so FCM servers fetch and attach the `/thumb/` JPEG as a `BigPictureStyle` notification image — no companion app code required
+
+---
+
+### POC 1.01 — May 2026: YOLO Thumbnails & AI Badges in Event Listing
+
+**✨ New Features**
+- **Detection-Frame Thumbnails** — `SurveillanceEngineGpu` now saves the actual YOLO detection frame (with bounding box overlay) as a `.thumb.jpg` sidecar alongside each MP4 at recording start. The `/thumb/` endpoint serves this sidecar when available, falling back to `MediaMetadataRetriever` frame extraction
+- **AI Detection Badges in Portal** — The event listing in `events.html` shows coloured emoji badges for detected objects (person 🚶, car 🚗, bike 🚲) with confidence percentages, read from the `.ai.json` sidecar written by `YoloDetector`
+
+---
+
 ### POC 1.0 — May 2026: Companion App Integration, YOLO26n & AI Surveillance Settings
 
 **✨ New Features**

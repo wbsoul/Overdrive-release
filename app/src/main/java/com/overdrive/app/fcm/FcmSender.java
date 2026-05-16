@@ -150,6 +150,7 @@ public class FcmSender {
 
                 JSONObject data = new JSONObject();
                 data.put("event_type", eventType);
+                JSONObject androidConfig = null;
                 if (filePath != null && !filePath.isEmpty()) {
                     data.put("action", "play_video");
                     String fileName = new java.io.File(filePath).getName();
@@ -161,11 +162,18 @@ public class FcmSender {
                         String thumbUrl = tunnelUrl + "/thumb/" + fileName;
                         data.put("video_url", tunnelUrl + "/events.html?play=" + fileName);
                         // Include direct thumbnail URL — uses detection-frame sidecar if available,
-                        // falls back to lazy video frame extraction via the /thumb/ endpoint.
+                        // falls back to video frame extraction via the /thumb/ endpoint.
                         data.put("thumbnail_url", thumbUrl);
-                        // FCM v1: image field causes FCM to download + display the thumbnail
-                        // as a BigPictureStyle notification — no companion app code required.
+                        // FCM v1: notification.image tells FCM to download + display the thumbnail.
+                        // android.notification.image is the Android-platform-specific field that
+                        // actually controls BigPictureStyle rendering on Android devices.
                         notification.put("image", thumbUrl);
+                        // Android-platform override — required on many Android versions to render
+                        // the image in the notification tray even when notification.image is set.
+                        JSONObject androidNotification = new JSONObject();
+                        androidNotification.put("image", thumbUrl);
+                        androidConfig = new JSONObject();
+                        androidConfig.put("notification", androidNotification);
                     }
                 } else {
                     data.put("action", "open_events");
@@ -175,6 +183,9 @@ public class FcmSender {
                 message.put("token", deviceToken);
                 message.put("notification", notification);
                 message.put("data", data);
+                if (androidConfig != null) {
+                    message.put("android", androidConfig);
+                }
 
                 JSONObject payload = new JSONObject();
                 payload.put("message", message);
