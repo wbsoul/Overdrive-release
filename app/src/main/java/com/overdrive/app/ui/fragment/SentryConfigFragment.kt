@@ -753,7 +753,10 @@ class SentryConfigFragment : Fragment() {
             }
             sliderSurveillanceLimit.valueTo = maxLimit.toFloat()
             
-            sliderSurveillanceLimit.value = limitMb.toFloat().coerceIn(100f, maxLimit.toFloat())
+            // Snap to nearest 100MB step to avoid IllegalStateException from Material Slider
+            val snappedLimit = ((limitMb + 50) / 100 * 100).coerceIn(100, maxLimit)
+            limitMb = snappedLimit
+            sliderSurveillanceLimit.value = snappedLimit.toFloat()
             tvSurveillanceLimitValue.text = "${limitMb} MB"
             tvSurveillanceLimit.text = "${limitMb} MB limit"
             

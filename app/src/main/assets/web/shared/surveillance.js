@@ -711,9 +711,10 @@ BYD.surveillance = {
         
         // Reset Apply button state after UI update (no unsaved changes after load)
         this.hasUnsavedChanges = false;
-        document.getElementById('btnApply').disabled = true;
+        const _applyBtn = document.getElementById('btnApply');
+        if (_applyBtn) { _applyBtn.disabled = true; _applyBtn.classList.remove('has-changes'); }
         var _du = document.getElementById('detectionUnsaved'); if (_du) _du.classList.remove('show');
-        document.getElementById('recordingUnsaved').classList.remove('show');
+        var _ru = document.getElementById('recordingUnsaved'); if (_ru) _ru.classList.remove('show');
         var _su2 = document.getElementById('storageUnsaved'); if (_su2) _su2.classList.remove('show');
     },
 

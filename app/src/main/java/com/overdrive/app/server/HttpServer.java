@@ -90,6 +90,11 @@ public class HttpServer {
             // (daemon has no Android context, can't open assets directly)
             try {
                 File fcmSaFile = new File("/data/local/tmp/fcm_service_account.json");
+                // Delete any existing locked copy before writing. setWritable(true) is a no-op
+                // when the file is owned by a different UID (e.g. after app reinstall), causing
+                // FileOutputStream to throw EACCES. /data/local/tmp is world-writable without a
+                // sticky bit, so delete() always succeeds regardless of the file's owner.
+                fcmSaFile.delete();
                 try (InputStream in = assetManager.open("fcm_service_account.json");
                      java.io.FileOutputStream fos = new java.io.FileOutputStream(fcmSaFile)) {
                     byte[] buf = new byte[4096];
@@ -97,7 +102,7 @@ public class HttpServer {
                     while ((n = in.read(buf)) != -1) fos.write(buf, 0, n);
                 }
                 fcmSaFile.setReadable(true, false);
-                fcmSaFile.setWritable(false, false);
+                // Do NOT call setWritable(false) — that permanently blocks re-extraction on restart.
                 SystemDaemon.log("Extracted fcm_service_account.json to " + fcmSaFile.getAbsolutePath());
             } catch (Exception e) {
                 SystemDaemon.log("Could not extract fcm_service_account.json: " + e.getMessage());

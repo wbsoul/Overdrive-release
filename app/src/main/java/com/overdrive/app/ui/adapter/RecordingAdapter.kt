@@ -33,8 +33,10 @@ class RecordingAdapter(
     
     // Cache for thumbnails
     private val thumbnailCache = mutableMapOf<String, Bitmap?>()
-    
-    // Multi-select state
+    // Tracks sentry paths where sidecar was confirmed loaded — skip cache bypass once confirmed
+    private val sidecarConfirmedPaths = mutableSetOf<String>()
+    // Tracks sentry paths where sidecar was checked and not found — don't retry expensive video frame
+    private val sidecarTriedPaths = mutableSetOf<String>()
     var selectMode = false
         private set
     private val selectedItems = mutableSetOf<String>() // paths
@@ -176,7 +178,15 @@ class RecordingAdapter(
         
         private fun loadThumbnail(recording: RecordingFile) {
             val path = recording.path
-            if (thumbnailCache.containsKey(path)) {
+
+            // For sentry recordings: bypass the in-memory cache if the sidecar state is unknown.
+            // The cache might hold a stale generic frame from before the .thumb.jpg was readable.
+            // Once the sidecar is confirmed (or confirmed absent), subsequent loads use the cache.
+            val bypassCache = recording.type == RecordingFile.RecordingType.SENTRY
+                && !sidecarConfirmedPaths.contains(path)
+                && !sidecarTriedPaths.contains(path)
+
+            if (!bypassCache && thumbnailCache.containsKey(path)) {
                 val cached = thumbnailCache[path]
                 if (cached != null) ivThumbnail.setImageBitmap(cached)
                 else ivThumbnail.setImageResource(R.color.surface_variant)
@@ -186,6 +196,15 @@ class RecordingAdapter(
             CoroutineScope(Dispatchers.IO).launch {
                 val thumbnail = extractThumbnail(path)
                 thumbnailCache[path] = thumbnail
+                // Track sidecar outcome so we don't re-run extraction on every subsequent bind
+                if (recording.type == RecordingFile.RecordingType.SENTRY) {
+                    val sidecarFile = java.io.File(path.replace(".mp4", ".thumb.jpg"))
+                    if (thumbnail != null && sidecarFile.exists() && sidecarFile.length() > 0) {
+                        sidecarConfirmedPaths.add(path)
+                    } else {
+                        sidecarTriedPaths.add(path)
+                    }
+                }
                 withContext(Dispatchers.Main) {
                     if (bindingAdapterPosition != RecyclerView.NO_POSITION &&
                         getItem(bindingAdapterPosition).path == path && thumbnail != null) {
@@ -214,6 +233,8 @@ class RecordingAdapter(
     
     fun clearCache() {
         thumbnailCache.clear()
+        sidecarConfirmedPaths.clear()
+        sidecarTriedPaths.clear()
     }
     
     private class RecordingDiffCallback : DiffUtil.ItemCallback<RecordingFile>() {

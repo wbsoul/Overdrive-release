@@ -66,6 +66,10 @@ class SentryConfigViewModel : ViewModel() {
                         currentConfig = parseConfig(configJson)
                         _config.postValue(currentConfig)
                     }
+                } else {
+                    val errMsg = configResponse.optString("error", "GET_CONFIG returned success=false")
+                    android.util.Log.e("SentryConfigViewModel", "GET_CONFIG failed: $errMsg")
+                    _error.postValue("Config load failed: $errMsg")
                 }
                 
                 // Get status

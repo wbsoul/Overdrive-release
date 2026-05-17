@@ -2382,6 +2382,9 @@ public class SurveillanceEngineGpu {
                     try (java.io.FileOutputStream fos = new java.io.FileOutputStream(thumbFile)) {
                         fos.write(baos.toByteArray());
                     }
+                    // Make world-readable so the Android UI app (different UID) and
+                    // HTTP server can read the sidecar via file.exists() / BitmapFactory.
+                    thumbFile.setReadable(true, false);
                     scaled.recycle();
                     mutable.recycle();
                     bmp.recycle();
@@ -2403,6 +2406,7 @@ public class SurveillanceEngineGpu {
                             try (java.io.FileOutputStream fos = new java.io.FileOutputStream(aiFile)) {
                                 fos.write(aiJson.getBytes(java.nio.charset.StandardCharsets.UTF_8));
                             }
+                            aiFile.setReadable(true, false);
                         }
                     }
                 } catch (Exception e) {

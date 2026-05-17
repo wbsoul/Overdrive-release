@@ -79,6 +79,13 @@ public class FcmSender {
         }
         // If context is null (daemon process with no Android context),
         // appContext stays null and loadServiceAccount() will fall back to filesystem.
+
+        // Proactively seed the tunnel URL cache at startup so the first
+        // notification doesn't race against a cold probe.
+        EXECUTOR.submit(() -> {
+            String url = readTunnelUrl();
+            if (url != null) Log.d(TAG, "Startup tunnel URL cached: " + url);
+        });
     }
     // -------------------------------------------------------------------------
     // Public send methods
@@ -392,21 +399,22 @@ public class FcmSender {
 
     /**
      * Probes running tunnel process logs for a live URL.
-     * Checks cloudflared first (trycloudflare.com), then zrok (share.zrok.io).
+     * Reads files directly in Java — avoids Runtime.exec() which can fail silently
+     * in daemon contexts due to SELinux restrictions or missing shell environment.
      */
     private static String probeTunnelUrlFromLogs() {
         // cloudflared
-        String url = grepFirstMatch(
+        String url = scanLogFileForUrl(
                 "/data/local/tmp/cloudflared.log",
-                "https://[a-z0-9-]+\\.trycloudflare\\.com");
+                java.util.regex.Pattern.compile("https://[a-z0-9-]+\\.trycloudflare\\.com"));
         if (url != null) {
             Log.d(TAG, "Tunnel URL probed from cloudflared log: " + url);
             return url;
         }
-        // zrok
-        url = grepFirstMatch(
+        // zrok (reserved shares: subdomain is alphanumeric, may contain hyphens)
+        url = scanLogFileForUrl(
                 "/data/local/tmp/zrok.log",
-                "https://[a-z0-9]+\\.share\\.zrok\\.io");
+                java.util.regex.Pattern.compile("https://[a-z0-9-]+\\.share\\.zrok\\.io"));
         if (url != null) {
             Log.d(TAG, "Tunnel URL probed from zrok log: " + url);
             return url;
@@ -414,23 +422,26 @@ public class FcmSender {
         return null;
     }
 
-    /** Runs grep on a file and returns the first matching token, or null. */
-    private static String grepFirstMatch(String filePath, String pattern) {
+    /**
+     * Scans a log file line-by-line and returns the first token matching the pattern.
+     * Pure Java I/O — no subprocess, no shell, no SELinux exec restrictions.
+     */
+    private static String scanLogFileForUrl(String filePath, java.util.regex.Pattern pattern) {
         try {
             java.io.File f = new java.io.File(filePath);
-            if (!f.exists()) return null;
-            Process p = Runtime.getRuntime().exec(
-                    new String[]{"sh", "-c",
-                            "grep -o '" + pattern + "' '" + filePath + "' 2>/dev/null | head -1"});
-            java.io.BufferedReader reader = new java.io.BufferedReader(
-                    new java.io.InputStreamReader(p.getInputStream()));
-            String line = reader.readLine();
-            reader.close();
-            p.waitFor();
-            return (line != null && !line.trim().isEmpty()) ? line.trim() : null;
+            if (!f.exists() || !f.canRead()) return null;
+            try (java.io.BufferedReader reader = new java.io.BufferedReader(
+                    new java.io.FileReader(f))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    java.util.regex.Matcher m = pattern.matcher(line);
+                    if (m.find()) return m.group();
+                }
+            }
         } catch (Exception e) {
-            return null;
+            Log.w(TAG, "Could not scan log file " + filePath + ": " + e.getMessage());
         }
+        return null;
     }
 
     private static String base64UrlEncode(byte[] data) {

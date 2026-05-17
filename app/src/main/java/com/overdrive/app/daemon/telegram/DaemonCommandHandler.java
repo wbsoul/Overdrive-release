@@ -617,7 +617,7 @@ public class DaemonCommandHandler implements TelegramCommandHandler {
             for (int i = 0; i < 15; i++) { // Wait up to 15 seconds
                 try { Thread.sleep(1000); } catch (InterruptedException ignored) {}
                 // SOTA FIX: Use grep instead of cat to avoid loading entire log into memory
-                String grepResult = ctx.execShell("grep -o 'https://[a-z0-9]*\\.share\\.zrok\\.io' /data/local/tmp/zrok.log 2>/dev/null | head -1");
+                String grepResult = ctx.execShell("grep -o 'https://[a-z0-9-]*\\.share\\.zrok\\.io' /data/local/tmp/zrok.log 2>/dev/null | head -1");
                 if (grepResult != null && grepResult.startsWith("https://")) {
                     zrokUrl = grepResult.trim();
                     ctx.log("Zrok URL: " + zrokUrl);

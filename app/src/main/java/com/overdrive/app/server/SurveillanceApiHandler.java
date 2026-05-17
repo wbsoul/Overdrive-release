@@ -188,9 +188,11 @@ public class SurveillanceApiHandler {
         
         try {
             java.io.File unifiedFile = new java.io.File(UNIFIED_CONFIG_FILE);
-            config.put("lastModified", unifiedFile.exists() ? unifiedFile.lastModified() : System.currentTimeMillis());
+            // Return 0 when no config file exists so the JS reloadConfig() timestamp guard
+            // (newTimestamp > lastConfigTimestamp) never re-fires on the defaults
+            config.put("lastModified", unifiedFile.exists() ? unifiedFile.lastModified() : 0);
         } catch (Exception e) {
-            config.put("lastModified", System.currentTimeMillis());
+            config.put("lastModified", 0);
         }
         
         // SOTA: Safe Location status

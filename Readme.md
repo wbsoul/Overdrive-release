@@ -218,6 +218,21 @@ If you want to use Zrok tunneling for remote access, you need your own Zrok invi
 
 ## Changelog
 
+### POC 1.06 — May 2026: FCM Tunnel URL Detection Fix & Surveillance Settings Apply Button Fix
+
+**🐛 Bug Fixes**
+- **FCM Tunnel URL Detection (SELinux)** — `FcmSender.probeTunnelUrlFromLogs()` used `Runtime.getRuntime().exec()` to run `grep` in a shell subprocess. This fails silently in the daemon's SELinux execution context — no subprocess spawning is permitted — so `video_url` / `thumbnail_url` were dropped from FCM payloads even when the tunnel was running. Replaced with pure Java `BufferedReader` + `Pattern.matcher()` scanning of `cloudflared.log` and `zrok.log`. Added startup URL probe in `FcmSender.init()` to seed the cache when the daemon starts
+- **Zrok URL Pattern Missing Hyphens** — The regex used to extract the zrok tunnel URL (`[a-z0-9]+\.share\.zrok\.io`) did not allow hyphens in the subdomain. Fixed to `[a-z0-9-]+` in both `FcmSender.java` and `DaemonCommandHandler.java`
+- **FCM Service Account File — EACCES After Reinstall** — `HttpServer` called `setWritable(false)` after writing `fcm_service_account.json`, permanently blocking re-extraction on subsequent restarts. On reinstall the file's owner UID changes, making `setWritable(true)` a no-op and `FileOutputStream` throw EACCES. Fixed: delete the file before write; removed `setWritable(false)`
+- **Sentry Sidecar Files Not World-Readable** — `.thumb.jpg` and `.ai.json` sidecars written by `SurveillanceEngineGpu` were not marked world-readable. The companion app (different UID) could not read them. Fixed with `setReadable(true, false)`
+- **RecordingAdapter Stale Thumbnail Cache** — Sentry recordings loaded a generic video frame (from `MediaMetadataRetriever`) and cached it before the `.thumb.jpg` sidecar became readable. Subsequent list scrolls returned the stale frame. Fixed with `sidecarConfirmedPaths` / `sidecarTriedPaths` sets — the cache is bypassed once per recording until the sidecar state is confirmed
+- **Material Slider IllegalStateException** — `SentryConfigFragment` set the surveillance storage limit directly on the Material Slider without snapping to the step size, triggering an `IllegalStateException`. Fixed: limit is rounded to the nearest 100 MB before being applied
+- **Surveillance Settings Apply Button Pre-Activated** — `btnApply` had no `disabled` attribute in the HTML, so it rendered enabled the moment the page displayed — before `init()` completed its async API calls (1–2 s). Users saw "Apply Changes" as active immediately on page load. Fixed: button starts `disabled`; `updateUI()` now also clears the `has-changes` CSS class and uses null-safe element access
+- **Surveillance Config `lastModified` Timestamp** — `GET /api/surveillance/config` returned `lastModified: System.currentTimeMillis()` when no config file existed. This caused the 10-second `reloadConfig()` poll to always find a newer timestamp and re-run `updateUI()` on every tick when no config was saved. Fixed: returns `lastModified: 0` when the file is absent; subsequent polls compare `0 > 0` (false) and skip the reload
+- **SentryConfigViewModel Error Logging** — `GET_CONFIG` returning `success=false` was silently swallowed. Added error log and `_error.postValue()` to surface the failure in the UI
+
+---
+
 ### POC 1.05 — May 2026: Surveillance Settings Persistence Fix & FCM Tunnel URL Fix
 
 **🐛 Bug Fixes**
