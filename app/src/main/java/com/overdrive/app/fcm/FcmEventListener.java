@@ -39,7 +39,8 @@ public class FcmEventListener implements ITelegramEventBus.EventListener {
                 case MOTION:
                     if (prefs.isMotionEnabled()) {
                         MotionEvent me = (MotionEvent) event;
-                        FcmSender.notifyMotion(me.getAiDetection(), me.getConfidence(), me.getVideoFilename());
+                        FcmSender.notifyMotion(me.getAiDetection(), me.getConfidence(),
+                                me.getVideoFilename(), me.getDetectionsByType());
                     }
                     break;
 

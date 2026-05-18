@@ -1014,7 +1014,10 @@ public class SurveillanceEngineGpu {
                             // otherwise fall back to generic "motion".
                             String aiLabel = (lastAiConfirmationTimeMs >= firstMotionTime) ? lastConfirmedAiLabel : "motion";
                             float aiConf = (lastAiConfirmationTimeMs >= firstMotionTime) ? lastConfirmedAiConfidence : 1.0f;
-                            TelegramNotifier.notifyMotion(aiLabel, aiConf, videoFilename);
+                            // Pass best-per-type map for multi-detection notifications
+                            java.util.Map<String, Integer> perType = bestDetectionPerType.isEmpty()
+                                    ? null : new java.util.LinkedHashMap<>(bestDetectionPerType);
+                            TelegramNotifier.notifyMotion(aiLabel, aiConf, videoFilename, perType);
                         } catch (Exception e) {
                             logger.warn("Failed to send motion notification: " + e.getMessage());
                         }
@@ -1157,7 +1160,9 @@ public class SurveillanceEngineGpu {
                             String videoFilename = currentEventFile != null ? currentEventFile.getName() : null;
                             String aiLabel = (lastAiConfirmationTimeMs >= firstMotionTime) ? lastConfirmedAiLabel : "motion";
                             float aiConf = (lastAiConfirmationTimeMs >= firstMotionTime) ? lastConfirmedAiConfidence : 1.0f;
-                            TelegramNotifier.notifyMotion(aiLabel, aiConf, videoFilename);
+                            java.util.Map<String, Integer> perType = bestDetectionPerType.isEmpty()
+                                    ? null : new java.util.LinkedHashMap<>(bestDetectionPerType);
+                            TelegramNotifier.notifyMotion(aiLabel, aiConf, videoFilename, perType);
                         } catch (Exception e) {
                             logger.warn("Failed to send motion notification: " + e.getMessage());
                         }

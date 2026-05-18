@@ -119,9 +119,22 @@ public class TelegramNotifier {
      * @param videoFilename The event video filename (e.g., "event_20260113_143022.mp4")
      */
     public static void notifyMotion(String aiDetection, float confidence, String videoFilename) {
+        notifyMotion(aiDetection, confidence, videoFilename, null);
+    }
+
+    /**
+     * Notify motion detection with per-type detections map.
+     *
+     * @param aiDetection Primary AI detection label (fallback for legacy)
+     * @param confidence Primary detection confidence (0-1)
+     * @param videoFilename The event video filename
+     * @param detectionsByType Best-per-type map e.g. {"person":87,"car":65} (nullable)
+     */
+    public static void notifyMotion(String aiDetection, float confidence, String videoFilename,
+                                    java.util.Map<String, Integer> detectionsByType) {
         // Publish to in-app event bus
         TelegramEventBus.getInstance().publish(
-                new MotionEvent(aiDetection, confidence, videoFilename)
+                new MotionEvent(aiDetection, confidence, videoFilename, detectionsByType)
         );
         
         // Send via IPC to daemon
@@ -133,6 +146,13 @@ public class TelegramNotifier {
                 cmd.put("confidence", confidence);
                 if (videoFilename != null && !videoFilename.isEmpty()) {
                     cmd.put("videoFilename", videoFilename);
+                }
+                if (detectionsByType != null && !detectionsByType.isEmpty()) {
+                    JSONObject dets = new JSONObject();
+                    for (java.util.Map.Entry<String, Integer> e : detectionsByType.entrySet()) {
+                        dets.put(e.getKey(), e.getValue());
+                    }
+                    cmd.put("detectionsByType", dets);
                 }
                 sendIpc(cmd);
             } catch (Exception e) {

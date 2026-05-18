@@ -92,15 +92,38 @@ public class FcmSender {
     // -------------------------------------------------------------------------
 
     public static void notifyMotion(String aiDetection, float confidence) {
-        notifyMotion(aiDetection, confidence, null);
+        notifyMotion(aiDetection, confidence, null, null);
     }
 
     public static void notifyMotion(String aiDetection, float confidence, String videoFilename) {
+        notifyMotion(aiDetection, confidence, videoFilename, null);
+    }
+
+    public static void notifyMotion(String aiDetection, float confidence, String videoFilename,
+                                    java.util.Map<String, Integer> detectionsByType) {
         String title = "Motion Detected";
-        String body = (aiDetection != null && !aiDetection.isEmpty())
-                ? aiDetection.substring(0, 1).toUpperCase() + aiDetection.substring(1)
-                  + " detected (" + Math.round(confidence * 100) + "%)"
-                : "Motion detected";
+        String body;
+        if (detectionsByType != null && !detectionsByType.isEmpty()) {
+            // Multi-detection: "Person (87%), Car (65%) detected"
+            StringBuilder sb = new StringBuilder();
+            boolean first = true;
+            for (String type : new String[]{"person", "car", "bike"}) {
+                Integer conf = detectionsByType.get(type);
+                if (conf != null) {
+                    if (!first) sb.append(", ");
+                    sb.append(Character.toUpperCase(type.charAt(0))).append(type.substring(1));
+                    sb.append(" (").append(conf).append("%)");
+                    first = false;
+                }
+            }
+            sb.append(" detected");
+            body = sb.toString();
+        } else if (aiDetection != null && !aiDetection.isEmpty()) {
+            body = aiDetection.substring(0, 1).toUpperCase() + aiDetection.substring(1)
+                  + " detected (" + Math.round(confidence * 100) + "%)";
+        } else {
+            body = "Motion detected";
+        }
         sendAsync(title, body, "motion", videoFilename != null ? videoFilename : null);
     }
 
