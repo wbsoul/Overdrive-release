@@ -218,6 +218,15 @@ If you want to use Zrok tunneling for remote access, you need your own Zrok invi
 
 ## Changelog
 
+### POC 1.07 — May 2026: FCM Notification Image in Android Notification Bar
+
+**🐛 Bug Fixes**
+- **FCM Notification Image Not Showing (Companion App)** — `OdcMessagingService.onMessageReceived()` extracted `thumbnail_url` from the FCM data payload but never used it — the notification was built as text-only. Added `HttpURLConnection` image download with 10-second timeouts; on success the notification uses `NotificationCompat.BigPictureStyle` with the detection-frame thumbnail. Falls back gracefully to text-only if the download fails (tunnel down, etc.)
+- **FCM Notification Image Not Showing (Background State)** — The FCM payload previously included a `notification` block alongside `data`. When the companion app was in the background, FCM auto-displayed the notification using the `notification` block but could not reliably fetch `notification.image` from a zrok tunnel URL at delivery time. Changed to a **data-only** payload with `android.priority = HIGH`. This ensures `onMessageReceived()` is always called regardless of app state, giving the companion app full control over image download and display
+- **FCM OAuth2 400 — Missing Error Details** — `exchangeJwtForToken()` logged only the HTTP status code on failure, hiding Google's `error_description` field. Now logs the full response body (e.g. `{"error":"invalid_grant","error_description":"Invalid JWT Signature."}`) to aid diagnosis of service account key issues
+- **FCM OAuth2 — InputStream Truncation** — `loadServiceAccount()` used `InputStream.available()` to allocate the read buffer, which is only an estimate and can truncate the service account JSON for large `AssetManager` streams, silently corrupting the RSA private key. Fixed to read all bytes via a loop into a `ByteArrayOutputStream`
+- **FCM Service Account — Load Source Logging** — Added `D/FcmSender` log on successful load showing source path, project ID, client email, and private key length to confirm which key file is in use
+
 ### POC 1.06 — May 2026: FCM Tunnel URL Detection Fix & Surveillance Settings Apply Button Fix
 
 **🐛 Bug Fixes**

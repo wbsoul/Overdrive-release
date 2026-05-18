@@ -157,14 +157,19 @@ public class FcmSender {
                     Log.w(TAG, "Failed to obtain OAuth2 access token, skipping send");
                     return;
                 }
-                // FCM V1 message payload
-                JSONObject notification = new JSONObject();
-                notification.put("title", title);
-                notification.put("body", body);
-
+                // FCM V1 message payload — data-only with HIGH priority.
+                // Data-only means onMessageReceived() is ALWAYS called on the companion
+                // app regardless of foreground/background state, giving full control over
+                // image download and BigPictureStyle rendering. A notification block would
+                // cause FCM to auto-display in background without an image (it can't
+                // reliably download the tunnel URL during delivery).
                 JSONObject data = new JSONObject();
                 data.put("event_type", eventType);
-                JSONObject androidConfig = null;
+                data.put("title", title);
+                data.put("body", body);
+                // HIGH priority wakes up the companion app even when killed.
+                JSONObject androidConfig = new JSONObject();
+                androidConfig.put("priority", "HIGH");
                 if (filePath != null && !filePath.isEmpty()) {
                     data.put("action", "play_video");
                     String fileName = new java.io.File(filePath).getName();
@@ -175,19 +180,8 @@ public class FcmSender {
                     if (tunnelUrl != null) {
                         String thumbUrl = tunnelUrl + "/thumb/" + fileName;
                         data.put("video_url", tunnelUrl + "/events.html?play=" + fileName);
-                        // Include direct thumbnail URL — uses detection-frame sidecar if available,
-                        // falls back to video frame extraction via the /thumb/ endpoint.
+                        // The companion app downloads this URL and shows it as BigPictureStyle.
                         data.put("thumbnail_url", thumbUrl);
-                        // FCM v1: notification.image tells FCM to download + display the thumbnail.
-                        // android.notification.image is the Android-platform-specific field that
-                        // actually controls BigPictureStyle rendering on Android devices.
-                        notification.put("image", thumbUrl);
-                        // Android-platform override — required on many Android versions to render
-                        // the image in the notification tray even when notification.image is set.
-                        JSONObject androidNotification = new JSONObject();
-                        androidNotification.put("image", thumbUrl);
-                        androidConfig = new JSONObject();
-                        androidConfig.put("notification", androidNotification);
                     } else {
                         Log.w(TAG, "FCM [" + eventType + "]: tunnel URL unavailable — video_url/thumbnail_url omitted from payload");
                     }
@@ -197,11 +191,8 @@ public class FcmSender {
 
                 JSONObject message = new JSONObject();
                 message.put("token", deviceToken);
-                message.put("notification", notification);
                 message.put("data", data);
-                if (androidConfig != null) {
-                    message.put("android", androidConfig);
-                }
+                message.put("android", androidConfig);
 
                 JSONObject payload = new JSONObject();
                 payload.put("message", message);
@@ -297,11 +288,13 @@ public class FcmSender {
                 .build();
 
         try (Response response = HTTP_CLIENT.newCall(request).execute()) {
-            if (!response.isSuccessful() || response.body() == null) {
-                Log.w(TAG, "Token exchange failed: HTTP " + response.code());
+            String responseBody = response.body() != null ? response.body().string() : "(no body)";
+            if (!response.isSuccessful()) {
+                // Log the full response body — Google includes a descriptive error_description.
+                Log.w(TAG, "Token exchange failed: HTTP " + response.code() + " — " + responseBody);
                 return null;
             }
-            JSONObject json = new JSONObject(response.body().string());
+            JSONObject json = new JSONObject(responseBody);
             return json.optString("access_token", null);
         } catch (Exception e) {
             Log.e(TAG, "Token exchange error: " + e.getMessage());
@@ -328,26 +321,37 @@ public class FcmSender {
     private static ServiceAccount loadServiceAccount() {
         // Prefer assets (app process); fall back to extracted filesystem copy (daemon process).
         InputStream is = null;
+        String source = null;
         try {
             if (appContext != null) {
                 is = appContext.getAssets().open(ASSET_NAME);
+                source = "assets/" + ASSET_NAME;
             } else if (SERVICE_ACCOUNT_FILE.exists()) {
                 is = new java.io.FileInputStream(SERVICE_ACCOUNT_FILE);
+                source = SERVICE_ACCOUNT_FILE.getAbsolutePath()
+                        + " (" + SERVICE_ACCOUNT_FILE.length() + " bytes)";
             } else {
                 Log.e(TAG, "Service account not available (no context, no file at " + SERVICE_ACCOUNT_FILE + ")");
                 return null;
             }
-            byte[] data = new byte[is.available()];
-            //noinspection ResultOfMethodCallIgnored
-            is.read(data);
-            JSONObject json = new JSONObject(new String(data, StandardCharsets.UTF_8));
+            // Read all bytes — InputStream.available() is an estimate and can truncate
+            // large streams (e.g. AssetManager), which would corrupt the private key.
+            java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
+            byte[] buf = new byte[4096];
+            int n;
+            while ((n = is.read(buf)) != -1) baos.write(buf, 0, n);
+            JSONObject json = new JSONObject(new String(baos.toByteArray(), StandardCharsets.UTF_8));
             ServiceAccount sa = new ServiceAccount();
             sa.projectId = json.getString("project_id");
             sa.clientEmail = json.getString("client_email");
             sa.privateKeyPem = json.getString("private_key");
+            Log.d(TAG, "Service account loaded from " + source
+                    + " | project=" + sa.projectId
+                    + " | email=" + sa.clientEmail
+                    + " | keyLength=" + sa.privateKeyPem.length());
             return sa;
         } catch (Exception e) {
-            Log.e(TAG, "Failed to read service account: " + e.getMessage());
+            Log.e(TAG, "Failed to read service account from " + source + ": " + e.getMessage());
             return null;
         } finally {
             if (is != null) try { is.close(); } catch (Exception ignored) {}
