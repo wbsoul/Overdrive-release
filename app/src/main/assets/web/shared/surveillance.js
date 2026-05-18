@@ -608,9 +608,14 @@ BYD.surveillance = {
 
     async loadConfig() {
         try {
+            console.log('[SurvSettings] loadConfig: fetching /api/surveillance/config ...');
             const resp = await fetch('/api/surveillance/config');
-            const data = await resp.json();
+            console.log('[SurvSettings] loadConfig: HTTP ' + resp.status + ' ' + resp.statusText);
+            const text = await resp.text();
+            console.log('[SurvSettings] loadConfig: body length=' + text.length + ' preview=' + text.substring(0, 200));
+            const data = JSON.parse(text);
             if (data.success && data.config) {
+                console.log('[SurvSettings] loadConfig: success, keys=' + Object.keys(data.config).join(','));
                 this.config = { ...this.config, ...data.config };
                 // Use server-provided distance/sensitivity if available, otherwise calculate from minObjectSize
                 if (!data.config.distance) {
@@ -620,9 +625,11 @@ BYD.surveillance = {
                     this.config.sensitivity = 3;  // Default
                 }
                 this.lastConfigTimestamp = data.config.lastModified || Date.now();
+            } else {
+                console.warn('[SurvSettings] loadConfig: unexpected response — success=' + data.success + ' hasConfig=' + !!data.config);
             }
         } catch (e) {
-            console.warn('Failed to load config:', e);
+            console.warn('[SurvSettings] loadConfig FAILED:', e.name, e.message, e.stack);
         }
         
         // Load storage settings

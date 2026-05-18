@@ -218,7 +218,11 @@ If you want to use Zrok tunneling for remote access, you need your own Zrok invi
 
 ## Changelog
 
-### POC 1.07 — May 2026: FCM Notification Image in Android Notification Bar
+### POC 1.07 — May 2026: FCM Notification Image Fix & Native Events Parity
+
+**✨ Features**
+- **Native Events Page — Storage Stats Bar** — Added a compact storage stats bar to the native Android events page showing total disk usage with a fill bar and per-type breakdown (Normal / Sentry / Proximity counts with colored indicators). Stats refresh on page load, resume, and after deletions
+- **Native Events Page — Pagination** — Added Prev/Next pagination controls (12 items per page, matching the remote portal) to the native events list. Previously all recordings for a date loaded at once with no paging. Page resets on filter or date change
 
 **🐛 Bug Fixes**
 - **FCM Notification Image Not Showing (Companion App)** — `OdcMessagingService.onMessageReceived()` extracted `thumbnail_url` from the FCM data payload but never used it — the notification was built as text-only. Added `HttpURLConnection` image download with 10-second timeouts; on success the notification uses `NotificationCompat.BigPictureStyle` with the detection-frame thumbnail. Falls back gracefully to text-only if the download fails (tunnel down, etc.)
@@ -226,6 +230,9 @@ If you want to use Zrok tunneling for remote access, you need your own Zrok invi
 - **FCM OAuth2 400 — Missing Error Details** — `exchangeJwtForToken()` logged only the HTTP status code on failure, hiding Google's `error_description` field. Now logs the full response body (e.g. `{"error":"invalid_grant","error_description":"Invalid JWT Signature."}`) to aid diagnosis of service account key issues
 - **FCM OAuth2 — InputStream Truncation** — `loadServiceAccount()` used `InputStream.available()` to allocate the read buffer, which is only an estimate and can truncate the service account JSON for large `AssetManager` streams, silently corrupting the RSA private key. Fixed to read all bytes via a loop into a `ByteArrayOutputStream`
 - **FCM Service Account — Load Source Logging** — Added `D/FcmSender` log on successful load showing source path, project ID, client email, and private key length to confirm which key file is in use
+
+**🔍 Diagnostics**
+- **Surveillance Settings WebView Debug Logging** — Added diagnostic logging across the surveillance config loading pipeline to investigate settings not populating on Android WebView: JS-side `loadConfig()` logs fetch status/body/keys, `WebViewFragment.shouldInterceptRequest` logs API request/response details, and `SurveillanceApiHandler.sendConfig()` logs config source and key fields
 
 ### POC 1.06 — May 2026: FCM Tunnel URL Detection Fix & Surveillance Settings Apply Button Fix
 

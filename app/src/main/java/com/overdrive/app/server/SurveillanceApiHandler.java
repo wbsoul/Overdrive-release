@@ -305,6 +305,9 @@ public class SurveillanceApiHandler {
         }
         
         response.put("config", config);
+        SystemDaemon.log("SurveillanceAPI GET /config: sentryConfig=" + (sentryConfig != null ? "loaded" : "null")
+            + " keys=" + config.length() + " enabled=" + config.optBoolean("enabled")
+            + " lastModified=" + config.optLong("lastModified"));
         HttpResponse.sendJson(out, response.toString());
     }
     

@@ -274,6 +274,10 @@ class WebViewFragment : Fragment() {
                     if (url.endsWith(".mp4")) {
                         android.util.Log.d("WebViewProxy", "Intercepting Video: $url")
                     }
+                    // LOGGING: API call diagnostics
+                    if (url.contains("/api/")) {
+                        android.util.Log.d("WebViewProxy", "API request: $url")
+                    }
 
                     try {
                         // 1. Force Direct Connection (Bypass sing-box)
@@ -351,6 +355,11 @@ class WebViewFragment : Fragment() {
                             headers.forEach { (k, v) ->
                                 android.util.Log.d("WebViewProxy", "  Header: $k = $v")
                             }
+                        }
+
+                        // Log API responses for diagnostics
+                        if (url.contains("/api/")) {
+                            android.util.Log.d("WebViewProxy", "API response: ${connection.responseCode} mime=$mime len=$length url=$url")
                         }
 
                         return response

@@ -19,6 +19,7 @@ import com.overdrive.app.ui.adapter.CalendarAdapter
 import com.overdrive.app.ui.adapter.RecordingAdapter
 import com.overdrive.app.ui.model.RecordingFile
 import com.overdrive.app.ui.util.RecordingScanner
+import com.google.android.material.button.MaterialButton
 import com.google.android.material.chip.Chip
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.overdrive.app.R
@@ -57,6 +58,23 @@ class RecordingLibraryFragment : Fragment() {
     private var btnSelectAll: View? = null
     private var btnDeleteSelected: View? = null
     private var btnCancelSelect: View? = null
+    
+    // Pagination
+    private var paginationControls: LinearLayout? = null
+    private var btnPrevPage: MaterialButton? = null
+    private var btnNextPage: MaterialButton? = null
+    private var tvPageInfo: TextView? = null
+    private var currentPage = 1
+    private var totalPages = 1
+    private var allFilteredRecordings: List<RecordingFile> = emptyList()
+    private val PAGE_SIZE = 12
+    
+    // Storage stats
+    private var tvStorageUsed: TextView? = null
+    private var viewStorageFill: View? = null
+    private var tvNormalCount: TextView? = null
+    private var tvSentryCount: TextView? = null
+    private var tvProximityCount: TextView? = null
     
     private val calendarAdapter = CalendarAdapter { day -> onDaySelected(day) }
     private lateinit var recordingAdapter: RecordingAdapter
@@ -108,6 +126,7 @@ class RecordingLibraryFragment : Fragment() {
         
         updateCalendar()
         loadRecordingsForSelectedDate()
+        loadStorageStats()
     }
     
     /**
@@ -188,6 +207,32 @@ class RecordingLibraryFragment : Fragment() {
         btnDeleteSelected?.setOnClickListener { confirmBatchDelete() }
         btnCancelSelect?.setOnClickListener { exitSelectMode() }
         
+        // Pagination
+        paginationControls = view.findViewById(R.id.paginationControls)
+        btnPrevPage = view.findViewById(R.id.btnPrevPage)
+        btnNextPage = view.findViewById(R.id.btnNextPage)
+        tvPageInfo = view.findViewById(R.id.tvPageInfo)
+        
+        btnPrevPage?.setOnClickListener {
+            if (currentPage > 1) {
+                currentPage--
+                applyPage()
+            }
+        }
+        btnNextPage?.setOnClickListener {
+            if (currentPage < totalPages) {
+                currentPage++
+                applyPage()
+            }
+        }
+        
+        // Storage stats
+        tvStorageUsed = view.findViewById(R.id.tvStorageUsed)
+        viewStorageFill = view.findViewById(R.id.viewStorageFill)
+        tvNormalCount = view.findViewById(R.id.tvNormalCount)
+        tvSentryCount = view.findViewById(R.id.tvSentryCount)
+        tvProximityCount = view.findViewById(R.id.tvProximityCount)
+        
         // Filter chips - modern design
         try {
             chipFilterAll = view.findViewById(R.id.btnFilterAll)
@@ -204,24 +249,28 @@ class RecordingLibraryFragment : Fragment() {
         chipFilterAll?.setOnClickListener {
             currentFilter = RecordingFilter.ALL
             updateFilterChips()
+            currentPage = 1
             loadRecordingsForSelectedDate()
         }
         
         chipFilterNormal?.setOnClickListener {
             currentFilter = RecordingFilter.NORMAL
             updateFilterChips()
+            currentPage = 1
             loadRecordingsForSelectedDate()
         }
         
         chipFilterSentry?.setOnClickListener {
             currentFilter = RecordingFilter.SENTRY
             updateFilterChips()
+            currentPage = 1
             loadRecordingsForSelectedDate()
         }
         
         chipFilterProximity?.setOnClickListener {
             currentFilter = RecordingFilter.PROXIMITY
             updateFilterChips()
+            currentPage = 1
             loadRecordingsForSelectedDate()
         }
         
@@ -353,6 +402,7 @@ class RecordingLibraryFragment : Fragment() {
     private fun onDaySelected(day: Int) {
         selectedDay = day
         calendarAdapter.setSelectedDay(day)
+        currentPage = 1
         loadRecordingsForSelectedDate()
     }
     
@@ -368,27 +418,10 @@ class RecordingLibraryFragment : Fragment() {
         
         Log.d(TAG, "Loading recordings for $year-${month+1}-$selectedDay")
         
-        // SOTA: Load recordings in background to prevent UI lag during date selection
         if (scanExecutor.isShutdown) return
         scanExecutor.submit {
             try {
-                // Debug: Check directories
-                val recordingsDir = RecordingScanner.getRecordingsDir(requireContext())
-                val sentryDir = RecordingScanner.getSentryEventsDir(requireContext())
-                val proximityDir = RecordingScanner.getProximityEventsDir(requireContext())
-                
-                Log.d(TAG, "Recordings dir: ${recordingsDir.absolutePath}, exists: ${recordingsDir.exists()}")
-                Log.d(TAG, "Sentry dir: ${sentryDir.absolutePath}, exists: ${sentryDir.exists()}")
-                Log.d(TAG, "Proximity dir: ${proximityDir.absolutePath}, exists: ${proximityDir.exists()}")
-                
-                if (recordingsDir.exists()) {
-                    val files = recordingsDir.listFiles()
-                    Log.d(TAG, "Recordings dir files: ${files?.size ?: 0}")
-                    files?.take(5)?.forEach { Log.d(TAG, "  - ${it.name}") }
-                }
-                
                 val allRecordings = RecordingScanner.getRecordingsForDate(requireContext(), year, month, selectedDay)
-                Log.d(TAG, "Found ${allRecordings.size} recordings for date")
                 
                 val recordings = when (currentFilter) {
                     RecordingFilter.ALL -> allRecordings
@@ -401,26 +434,98 @@ class RecordingLibraryFragment : Fragment() {
                 
                 activity?.runOnUiThread {
                     if (isAdded) {
-                        if (recordings.isEmpty()) {
-                            recyclerRecordings.visibility = View.GONE
-                            emptyStateContainer?.visibility = View.VISIBLE
-                            tvEmptyState.visibility = View.VISIBLE
-                            tvEmptyState.text = when (currentFilter) {
-                                RecordingFilter.ALL -> "No recordings for this date"
-                                RecordingFilter.NORMAL -> "No normal recordings"
-                                RecordingFilter.SENTRY -> "No sentry events"
-                                RecordingFilter.PROXIMITY -> "No proximity events"
-                            }
-                        } else {
-                            recyclerRecordings.visibility = View.VISIBLE
-                            emptyStateContainer?.visibility = View.GONE
-                            tvEmptyState.visibility = View.GONE
-                            recordingAdapter.submitList(recordings)
-                        }
+                        allFilteredRecordings = recordings
+                        totalPages = if (recordings.isEmpty()) 1 else (recordings.size + PAGE_SIZE - 1) / PAGE_SIZE
+                        if (currentPage > totalPages) currentPage = totalPages
+                        applyPage()
                     }
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error loading recordings", e)
+            }
+        }
+    }
+    
+    private fun applyPage() {
+        val start = (currentPage - 1) * PAGE_SIZE
+        val end = minOf(start + PAGE_SIZE, allFilteredRecordings.size)
+        val page = if (start < allFilteredRecordings.size) allFilteredRecordings.subList(start, end) else emptyList()
+        
+        if (allFilteredRecordings.isEmpty()) {
+            recyclerRecordings.visibility = View.GONE
+            emptyStateContainer?.visibility = View.VISIBLE
+            tvEmptyState.visibility = View.VISIBLE
+            tvEmptyState.text = when (currentFilter) {
+                RecordingFilter.ALL -> "No recordings for this date"
+                RecordingFilter.NORMAL -> "No normal recordings"
+                RecordingFilter.SENTRY -> "No sentry events"
+                RecordingFilter.PROXIMITY -> "No proximity events"
+            }
+        } else {
+            recyclerRecordings.visibility = View.VISIBLE
+            emptyStateContainer?.visibility = View.GONE
+            tvEmptyState.visibility = View.GONE
+            recordingAdapter.submitList(page)
+            recyclerRecordings.scrollToPosition(0)
+        }
+        updatePagination()
+    }
+    
+    private fun updatePagination() {
+        if (totalPages <= 1) {
+            paginationControls?.visibility = View.GONE
+            return
+        }
+        paginationControls?.visibility = View.VISIBLE
+        tvPageInfo?.text = "Page $currentPage of $totalPages"
+        btnPrevPage?.isEnabled = currentPage > 1
+        btnNextPage?.isEnabled = currentPage < totalPages
+    }
+    
+    private fun loadStorageStats() {
+        if (scanExecutor.isShutdown) return
+        scanExecutor.submit {
+            try {
+                val ctx = requireContext()
+                val all = RecordingScanner.scanRecordings(ctx)
+                val totalSize = all.sumOf { it.sizeBytes }
+                val normalCount = all.count { it.type == RecordingFile.RecordingType.NORMAL }
+                val sentryCount = all.count { it.type == RecordingFile.RecordingType.SENTRY }
+                val proximityCount = all.count { it.type == RecordingFile.RecordingType.PROXIMITY }
+                
+                // Get total storage space from StorageManager
+                val sm = com.overdrive.app.storage.StorageManager.getInstance()
+                val baseDir = sm.recordingsDir.parentFile
+                val totalSpace = baseDir?.totalSpace ?: 1L
+                val usedPercent = if (totalSpace > 0) ((totalSize.toDouble() / totalSpace) * 100).toInt().coerceIn(0, 100) else 0
+                
+                val sizeStr = when {
+                    totalSize >= 1_000_000_000 -> String.format("%.1f GB", totalSize / 1_000_000_000.0)
+                    totalSize >= 1_000_000 -> String.format("%.1f MB", totalSize / 1_000_000.0)
+                    totalSize >= 1_000 -> String.format("%.1f KB", totalSize / 1_000.0)
+                    else -> "$totalSize B"
+                }
+                
+                activity?.runOnUiThread {
+                    if (isAdded) {
+                        tvStorageUsed?.text = sizeStr
+                        tvNormalCount?.text = normalCount.toString()
+                        tvSentryCount?.text = sentryCount.toString()
+                        tvProximityCount?.text = proximityCount.toString()
+                        
+                        // Animate storage fill bar width
+                        viewStorageFill?.let { fill ->
+                            val parent = fill.parent as? View ?: return@let
+                            fill.post {
+                                val params = fill.layoutParams
+                                params.width = (parent.width * usedPercent / 100)
+                                fill.layoutParams = params
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error loading storage stats", e)
             }
         }
     }
@@ -467,7 +572,8 @@ class RecordingLibraryFragment : Fragment() {
         if (RecordingScanner.deleteRecording(recording)) {
             Toast.makeText(context, "Recording deleted", Toast.LENGTH_SHORT).show()
             loadRecordingsForSelectedDate()
-            updateCalendar() // Refresh indicators
+            updateCalendar()
+            loadStorageStats()
         } else {
             Toast.makeText(context, "Failed to delete recording", Toast.LENGTH_SHORT).show()
         }
@@ -513,6 +619,7 @@ class RecordingLibraryFragment : Fragment() {
                     exitSelectMode()
                     loadRecordingsForSelectedDate()
                     updateCalendar()
+                    loadStorageStats()
                 }
             }
         }
@@ -529,6 +636,7 @@ class RecordingLibraryFragment : Fragment() {
         RecordingScanner.invalidateCache()
         updateCalendar()
         loadRecordingsForSelectedDate()
+        loadStorageStats()
     }
     
     override fun onDestroyView() {
