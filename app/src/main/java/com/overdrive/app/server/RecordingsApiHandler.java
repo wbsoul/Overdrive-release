@@ -502,16 +502,26 @@ public class RecordingsApiHandler {
                             String aiJsonStr = new String(java.nio.file.Files.readAllBytes(aiFile.toPath()),
                                     java.nio.charset.StandardCharsets.UTF_8);
                             org.json.JSONObject aiJson = new org.json.JSONObject(aiJsonStr);
-                            String aiType = aiJson.optString("type", "");
-                            int aiConf = aiJson.optInt("conf", 0);
-                            if (aiType.equals("person") || aiType.equals("car") || aiType.equals("bike")) {
-                                org.json.JSONArray aiArr = new org.json.JSONArray();
-                                org.json.JSONObject entry = new org.json.JSONObject();
-                                entry.put("type", aiType);
-                                entry.put("conf", aiConf);
-                                aiArr.put(entry);
-                                rec.put("aiDetections", aiArr);
+                            org.json.JSONArray aiArr = new org.json.JSONArray();
+                            // New format: {"detections":[...]}
+                            org.json.JSONArray detsArr = aiJson.optJSONArray("detections");
+                            if (detsArr != null) {
+                                for (int di = 0; di < detsArr.length(); di++) {
+                                    org.json.JSONObject d = detsArr.optJSONObject(di);
+                                    if (d != null) aiArr.put(d);
+                                }
+                            } else {
+                                // Old format: {"type":"person","conf":87}
+                                String aiType = aiJson.optString("type", "");
+                                int aiConf = aiJson.optInt("conf", 0);
+                                if (aiType.equals("person") || aiType.equals("car") || aiType.equals("bike")) {
+                                    org.json.JSONObject entry = new org.json.JSONObject();
+                                    entry.put("type", aiType);
+                                    entry.put("conf", aiConf);
+                                    aiArr.put(entry);
+                                }
                             }
+                            if (aiArr.length() > 0) rec.put("aiDetections", aiArr);
                         } catch (Exception ignored) {}
                     }
                 }
@@ -555,10 +565,25 @@ public class RecordingsApiHandler {
                                     String aiJsonStr = new String(java.nio.file.Files.readAllBytes(aiFile.toPath()),
                                             java.nio.charset.StandardCharsets.UTF_8);
                                     org.json.JSONObject aiJson = new org.json.JSONObject(aiJsonStr);
-                                    String aiType = aiJson.optString("type", "");
-                                    int aiConf = aiJson.optInt("conf", 0);
-                                    if (aiType.equals("person") || aiType.equals("car") || aiType.equals("bike")) {
-                                        maxConf.put(aiType, aiConf / 100.0f);
+                                    // New format: {"detections":[...]}
+                                    org.json.JSONArray detsArr = aiJson.optJSONArray("detections");
+                                    if (detsArr != null) {
+                                        for (int di = 0; di < detsArr.length(); di++) {
+                                            org.json.JSONObject d = detsArr.optJSONObject(di);
+                                            if (d == null) continue;
+                                            String dt = d.optString("type", "");
+                                            int dc = d.optInt("conf", 0);
+                                            if (dt.equals("person") || dt.equals("car") || dt.equals("bike")) {
+                                                maxConf.put(dt, dc / 100.0f);
+                                            }
+                                        }
+                                    } else {
+                                        // Old format: {"type":"person","conf":87}
+                                        String aiType = aiJson.optString("type", "");
+                                        int aiConf = aiJson.optInt("conf", 0);
+                                        if (aiType.equals("person") || aiType.equals("car") || aiType.equals("bike")) {
+                                            maxConf.put(aiType, aiConf / 100.0f);
+                                        }
                                     }
                                 } catch (Exception ignored) {}
                             }

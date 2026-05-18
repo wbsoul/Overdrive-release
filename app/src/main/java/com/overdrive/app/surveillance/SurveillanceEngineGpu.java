@@ -130,6 +130,16 @@ public class SurveillanceEngineGpu {
     private volatile int pendingDetectionFrameW = 0;
     private volatile int pendingDetectionFrameH = 0;
     private volatile com.overdrive.app.ai.Detection pendingDetectionBbox = null;  // best detection box (nullable)
+    
+    // BEST-PER-TYPE DETECTION TRACKING: Accumulates the highest-confidence detection
+    // per object type (person, car, bike) across all YOLO runs during a motion sequence.
+    // Written to the .ai.json sidecar at recording start. Max 3 entries.
+    // Key = "person"|"car"|"bike", Value = confidence as integer percentage (0-100).
+    private final java.util.Map<String, Integer> bestDetectionPerType =
+            java.util.Collections.synchronizedMap(new java.util.LinkedHashMap<>());
+    // Tracks the highest confidence seen across ALL types for hero frame selection.
+    // The pendingDetectionFrame is only updated when a detection beats this value.
+    private volatile float heroFrameConfidence = 0f;
 
     // Detection mode
     private boolean useObjectDetection = false;
@@ -769,6 +779,8 @@ public class SurveillanceEngineGpu {
                 // Reset AI label so a stale label from the previous event is never used
                 lastConfirmedAiLabel = "motion";
                 lastConfirmedAiConfidence = 1.0f;
+                bestDetectionPerType.clear();
+                heroFrameConfidence = 0f;
                 int bestQ = pipelineV2.getHighestThreatQuadrant();
                 MotionPipelineV2.QuadrantResult bestR = bestQ >= 0 ? results[bestQ] : null;
                 float estDist = bestQ >= 0 && bestR != null ? estimateDistanceFromCentroid(bestQ, bestR.centroidY) : -1;
@@ -922,6 +934,8 @@ public class SurveillanceEngineGpu {
                         }
                         firstMotionTime = 0;
                         peakThreatDuringSequence = 0;
+                        bestDetectionPerType.clear();
+                        heroFrameConfidence = 0f;
                     }
                     
                     if (shouldSuppress) {
@@ -1170,6 +1184,8 @@ public class SurveillanceEngineGpu {
                     }
                     firstMotionTime = 0;
                     peakThreatDuringSequence = 0;
+                    bestDetectionPerType.clear();
+                    heroFrameConfidence = 0f;
                 }
             }
         }
@@ -1224,6 +1240,8 @@ public class SurveillanceEngineGpu {
                     recordingStopTime = 0;
                     firstMotionTime = 0;
                     peakThreatDuringSequence = 0;
+                    bestDetectionPerType.clear();
+                    heroFrameConfidence = 0f;
                 }
             }
         }
@@ -1651,6 +1669,36 @@ public class SurveillanceEngineGpu {
                         }
                     }
                     
+                    // ROI (Detection Zone) polygon intersection filter.
+                    // If a per-quadrant ROI polygon is configured, only keep detections
+                    // whose bounding box at least partially intersects the polygon.
+                    // Detection coords are in the crop's pixel space; normalize to 0-1
+                    // relative to the crop dimensions for polygon comparison.
+                    if (config != null && config.isRoiEnabled(qIdx)) {
+                        float[][] roiPoly = config.getRoiPolygon(qIdx);
+                        if (roiPoly != null && roiPoly.length >= 3) {
+                            motionFiltered.removeIf(det -> {
+                                float nx1 = (float) det.getX() / qW;
+                                float ny1 = (float) det.getY() / qH;
+                                float nx2 = (float) (det.getX() + det.getW()) / qW;
+                                float ny2 = (float) (det.getY() + det.getH()) / qH;
+                                float ncx = (nx1 + nx2) / 2f;
+                                float ncy = (ny1 + ny2) / 2f;
+                                // Pass if any of: center, 4 corners, or any polygon vertex inside bbox
+                                if (isPointInPolygon(ncx, ncy, roiPoly)) return false;
+                                if (isPointInPolygon(nx1, ny1, roiPoly)) return false;
+                                if (isPointInPolygon(nx2, ny1, roiPoly)) return false;
+                                if (isPointInPolygon(nx1, ny2, roiPoly)) return false;
+                                if (isPointInPolygon(nx2, ny2, roiPoly)) return false;
+                                // Check if any polygon vertex falls inside the detection bbox
+                                for (float[] v : roiPoly) {
+                                    if (v[0] >= nx1 && v[0] <= nx2 && v[1] >= ny1 && v[1] <= ny2) return false;
+                                }
+                                return true;  // No intersection — remove
+                            });
+                        }
+                    }
+                    
                     // Per-class confidence filtering (applied on top of the global confThreshold)
                     motionFiltered.removeIf(det -> {
                         int cls = det.getClassId();
@@ -1752,18 +1800,29 @@ public class SurveillanceEngineGpu {
                         // even during the suppression window if YOLO sees a real threat.
                         lastAiConfirmationTimeMs = System.currentTimeMillis();
                         
-                        // Capture the highest-confidence detection label for FCM notifications.
-                        // Priority: person > car > bike > other. Within each class, take highest conf.
+                        // --- Best-per-type tracking ---
+                        // Update the per-type max confidence map for the .ai.json sidecar.
+                        // Also find the single highest-confidence detection across ALL types
+                        // for the hero frame thumbnail and FCM notification label.
                         com.overdrive.app.ai.Detection bestForLabel = null;
                         for (com.overdrive.app.ai.Detection d : motionFiltered) {
+                            int cls = d.getClassId();
+                            String typeName;
+                            if (cls == 0) typeName = "person";
+                            else if (cls == 2 || cls == 5 || cls == 7) typeName = "car";
+                            else if (cls == 1 || cls == 3) typeName = "bike";
+                            else continue;
+                            int confPct = Math.round(d.getConfidence() * 100);
+                            Integer prev = bestDetectionPerType.get(typeName);
+                            if (prev == null || confPct > prev) {
+                                bestDetectionPerType.put(typeName, confPct);
+                            }
+                            // Best overall for FCM label: prefer person, then highest conf
                             if (bestForLabel == null) {
                                 bestForLabel = d;
                             } else {
-                                // Prefer person (class 0) over everything else
-                                int bc = bestForLabel.getClassId();
-                                int dc = d.getClassId();
-                                boolean dIsPerson = (dc == 0);
-                                boolean bIsPerson = (bc == 0);
+                                boolean dIsPerson = (cls == 0);
+                                boolean bIsPerson = (bestForLabel.getClassId() == 0);
                                 if (dIsPerson && !bIsPerson) {
                                     bestForLabel = d;
                                 } else if (dIsPerson == bIsPerson && d.getConfidence() > bestForLabel.getConfidence()) {
@@ -1778,15 +1837,22 @@ public class SurveillanceEngineGpu {
                             else if (cls == 1 || cls == 3) lastConfirmedAiLabel = "bike";
                             else lastConfirmedAiLabel = "motion";
                             lastConfirmedAiConfidence = bestForLabel.getConfidence();
-                            // Capture detection frame for thumbnail sidecar.
-                            // cropData is the exact RGB frame YOLO ran on (qW×qH).
-                            // Store it so startRecording() can write a .thumb.jpg sidecar.
-                            byte[] frameCopy = new byte[cropData.length];
-                            System.arraycopy(cropData, 0, frameCopy, 0, cropData.length);
-                            pendingDetectionFrame = frameCopy;
-                            pendingDetectionFrameW = qW;
-                            pendingDetectionFrameH = qH;
-                            pendingDetectionBbox = bestForLabel;
+                            // Hero frame: only update the thumbnail frame when this detection
+                            // has higher confidence than any previously captured frame in this
+                            // motion sequence. This ensures the thumbnail shows the clearest
+                            // detection across all YOLO runs during the event.
+                            if (bestForLabel.getConfidence() > heroFrameConfidence) {
+                                heroFrameConfidence = bestForLabel.getConfidence();
+                                // Capture detection frame for thumbnail sidecar.
+                                // cropData is the exact RGB frame YOLO ran on (qW×qH).
+                                // Store it so startRecording() can write a .thumb.jpg sidecar.
+                                byte[] frameCopy = new byte[cropData.length];
+                                System.arraycopy(cropData, 0, frameCopy, 0, cropData.length);
+                                pendingDetectionFrame = frameCopy;
+                                pendingDetectionFrameW = qW;
+                                pendingDetectionFrameH = qH;
+                                pendingDetectionBbox = bestForLabel;
+                            }
                         }
                         
                         long timeSinceMotion = System.currentTimeMillis() - lastMotionTime;
@@ -2339,6 +2405,8 @@ public class SurveillanceEngineGpu {
         final int thumbW = pendingDetectionFrameW;
         final int thumbH = pendingDetectionFrameH;
         final com.overdrive.app.ai.Detection thumbBbox = pendingDetectionBbox;
+        // Snapshot best-per-type map before lambda (map is mutated by AI executor)
+        final java.util.Map<String, Integer> bestPerType = new java.util.LinkedHashMap<>(bestDetectionPerType);
         pendingDetectionFrame = null;  // release reference; keep detection label/confidence
         if (thumbFrame != null && thumbW > 0 && thumbH > 0) {
             final File thumbFile = new File(eventOutputDir,
@@ -2389,25 +2457,28 @@ public class SurveillanceEngineGpu {
                     mutable.recycle();
                     bmp.recycle();
                     logger.info("Detection thumbnail saved: " + thumbFile.getName());
-                    // Write .ai.json companion: detection type + confidence at trigger time.
+                    // Write .ai.json companion: best-per-type detections at trigger time.
+                    // Format: {"detections":[{"type":"person","conf":87},{"type":"car","conf":65}]}
+                    // Stores up to 3 entries (1 per object type with highest confidence).
                     // This is a reliable fallback for the events listing API — the main JSON
                     // sidecar is written at recording END, so there's a window where it may
-                    // not yet exist or may lack AI events due to timing. The .ai.json is
-                    // written immediately at trigger time from the YOLO detection that caused it.
-                    if (thumbBbox != null) {
-                        int cls = thumbBbox.getClassId();
-                        String aiType = null;
-                        if (cls == 0)                                      aiType = "person";
-                        else if (cls == 2 || cls == 5 || cls == 7)         aiType = "car";
-                        else if (cls == 1 || cls == 3)                     aiType = "bike";
-                        if (aiType != null) {
-                            int confPct = Math.round(thumbBbox.getConfidence() * 100);
-                            String aiJson = "{\"type\":\"" + aiType + "\",\"conf\":" + confPct + "}";
-                            try (java.io.FileOutputStream fos = new java.io.FileOutputStream(aiFile)) {
-                                fos.write(aiJson.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                    // not yet exist or may lack AI events due to timing.
+                    if (!bestPerType.isEmpty()) {
+                        StringBuilder sb = new StringBuilder("{\"detections\":[");
+                        boolean first = true;
+                        for (String t : new String[]{"person", "car", "bike"}) {
+                            Integer c = bestPerType.get(t);
+                            if (c != null) {
+                                if (!first) sb.append(',');
+                                sb.append("{\"type\":\"").append(t).append("\",\"conf\":").append(c).append('}');
+                                first = false;
                             }
-                            aiFile.setReadable(true, false);
                         }
+                        sb.append("]}");
+                        try (java.io.FileOutputStream fos = new java.io.FileOutputStream(aiFile)) {
+                            fos.write(sb.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                        }
+                        aiFile.setReadable(true, false);
                     }
                 } catch (Exception e) {
                     logger.warn("Failed to write detection thumbnail: " + e.getMessage());
@@ -2479,6 +2550,8 @@ public class SurveillanceEngineGpu {
         currentEventFile = null;
         pendingDetectionFrame = null;
         pendingDetectionBbox = null;
+        bestDetectionPerType.clear();
+        heroFrameConfidence = 0f;
         logger.info("Recording stopped, motion detection continues");
     }
     
@@ -2511,6 +2584,8 @@ public class SurveillanceEngineGpu {
         deterrentFiredTime = 0;  // Reset deterrent suppression
         lastAiConfirmationTimeMs = 0;  // Reset AI confirmation gate
         peakThreatDuringSequence = 0;
+        bestDetectionPerType.clear();
+        heroFrameConfidence = 0f;
         
         // Reset post-suppression baseline refresh tracking
         for (int q = 0; q < MotionPipelineV2.NUM_QUADRANTS; q++) {

@@ -163,16 +163,35 @@ data class RecordingFile(
          * Read AI detections from sidecar files alongside the MP4.
          * Tries .ai.json (written at trigger time) first, then the full .json timeline sidecar.
          * Returns detections in priority order: person, car, bike.
+         *
+         * Handles two .ai.json formats:
+         *   New: {"detections":[{"type":"person","conf":87},{"type":"car","conf":65}]}
+         *   Old: {"type":"person","conf":87}
          */
         private fun readAiDetections(file: File): List<AiDetection> {
             val base = file.name.removeSuffix(".mp4")
             val dir = file.parentFile ?: return emptyList()
 
-            // --- Try .ai.json first (simple: {"type":"person","conf":87}) ---
+            // --- Try .ai.json first ---
             val aiFile = File(dir, "$base.ai.json")
             if (aiFile.exists() && aiFile.length() > 0) {
                 try {
                     val json = org.json.JSONObject(aiFile.readText())
+                    // New format: {"detections":[...]}
+                    val detsArr = json.optJSONArray("detections")
+                    if (detsArr != null && detsArr.length() > 0) {
+                        val result = mutableListOf<AiDetection>()
+                        for (i in 0 until detsArr.length()) {
+                            val d = detsArr.optJSONObject(i) ?: continue
+                            val type = d.optString("type", "")
+                            val conf = d.optInt("conf", 0)
+                            if (type == "person" || type == "car" || type == "bike") {
+                                result.add(AiDetection(type, conf))
+                            }
+                        }
+                        if (result.isNotEmpty()) return result
+                    }
+                    // Old format: {"type":"person","conf":87}
                     val type = json.optString("type", "")
                     val conf = json.optInt("conf", 0)
                     if (type == "person" || type == "car" || type == "bike") {
