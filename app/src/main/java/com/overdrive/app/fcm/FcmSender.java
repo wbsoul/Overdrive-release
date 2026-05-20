@@ -49,6 +49,7 @@ public class FcmSender {
     private static final String OAUTH_TOKEN_URL = "https://oauth2.googleapis.com/token";
     private static final String FCM_SCOPE = "https://www.googleapis.com/auth/firebase.messaging";
     private static final String ASSET_NAME = "fcm_service_account.json";
+    private static final String ASSET_NAME_ENC = "fcm_service_account.enc";
     private static final long TOKEN_REFRESH_MARGIN_MS = 5 * 60 * 1000L; // refresh 5 min before expiry
 
     private static volatile Context appContext;
@@ -166,20 +167,24 @@ public class FcmSender {
                 String deviceToken = FcmTokenStore.getInstance().getToken();
                 if (deviceToken == null || deviceToken.isEmpty()) {
                     Log.w(TAG, "No Companion FCM token registered, skipping send");
+                    logFile("WARN", "No Companion FCM token registered, skipping send");
                     return;
                 }
 
                 ServiceAccount sa = loadServiceAccount();
                 if (sa == null) {
                     Log.w(TAG, "Service account not found in assets/" + ASSET_NAME + ", skipping send");
+                    logFile("WARN", "Service account not found in assets/" + ASSET_NAME + ", skipping send");
                     return;
                 }
 
                 String accessToken = getAccessToken(sa);
                 if (accessToken == null) {
                     Log.w(TAG, "Failed to obtain OAuth2 access token, skipping send");
+                    logFile("WARN", "Failed to obtain OAuth2 access token, skipping send");
                     return;
                 }
+                logFile("INFO", "[" + eventType + "] Token obtained, sending FCM to token=..." + deviceToken.substring(Math.max(0, deviceToken.length()-8)));
                 // FCM V1 message payload — data-only with HIGH priority.
                 // Data-only means onMessageReceived() is ALWAYS called on the companion
                 // app regardless of foreground/background state, giving full control over
@@ -193,20 +198,30 @@ public class FcmSender {
                 // HIGH priority wakes up the companion app even when killed.
                 JSONObject androidConfig = new JSONObject();
                 androidConfig.put("priority", "HIGH");
-                if (filePath != null && !filePath.isEmpty()) {
+                if ("motion".equals(eventType) && filePath != null && !filePath.isEmpty()) {
+                    // Motion: include thumbnail (hero frame already on disk) but no video_url
+                    // (recording is still in progress). Action = live_view so the companion
+                    // opens the live camera feed instead of trying to play a partial clip.
+                    data.put("action", "live_view");
+                    String fileName = new java.io.File(filePath).getName();
+                    data.put("file_name", fileName);
+                    String tunnelUrl = readTunnelUrl();
+                    if (tunnelUrl != null) {
+                        data.put("thumbnail_url", tunnelUrl + "/thumb/" + fileName);
+                    } else {
+                        Log.w(TAG, "FCM [motion]: tunnel URL unavailable — thumbnail_url omitted");
+                    }
+                } else if ("video".equals(eventType) && filePath != null && !filePath.isEmpty()) {
+                    // Video-ready: recording is complete — include both video URL and thumbnail.
                     data.put("action", "play_video");
                     String fileName = new java.io.File(filePath).getName();
                     data.put("file_name", fileName);
-                    // Provide the full streaming URL so the companion app can play
-                    // the clip directly via the remote access tunnel.
                     String tunnelUrl = readTunnelUrl();
                     if (tunnelUrl != null) {
-                        String thumbUrl = tunnelUrl + "/thumb/" + fileName;
                         data.put("video_url", tunnelUrl + "/events.html?play=" + fileName);
-                        // The companion app downloads this URL and shows it as BigPictureStyle.
-                        data.put("thumbnail_url", thumbUrl);
+                        data.put("thumbnail_url", tunnelUrl + "/thumb/" + fileName);
                     } else {
-                        Log.w(TAG, "FCM [" + eventType + "]: tunnel URL unavailable — video_url/thumbnail_url omitted from payload");
+                        Log.w(TAG, "FCM [video]: tunnel URL unavailable — video_url/thumbnail_url omitted");
                     }
                 } else {
                     data.put("action", "open_events");
@@ -231,14 +246,18 @@ public class FcmSender {
 
                 try (Response response = HTTP_CLIENT.newCall(request).execute()) {
                     if (!response.isSuccessful()) {
-                        Log.w(TAG, "FCM V1 send failed [" + eventType + "]: HTTP " + response.code());
+                        String errBody = response.body() != null ? response.body().string() : "(no body)";
+                        Log.w(TAG, "FCM V1 send failed [" + eventType + "]: HTTP " + response.code() + " — " + errBody);
+                        logFile("ERROR", "FCM V1 send FAILED [" + eventType + "]: HTTP " + response.code() + " — " + errBody);
                     } else {
                         Log.d(TAG, "FCM V1 sent [" + eventType + "]: " + title);
+                        logFile("OK", "FCM V1 sent [" + eventType + "]: " + title + " | " + body);
                     }
                 }
 
             } catch (Exception e) {
                 Log.e(TAG, "FCM send error [" + eventType + "]: " + e.getMessage());
+                logFile("ERROR", "FCM send exception [" + eventType + "]: " + e.getClass().getSimpleName() + ": " + e.getMessage());
             }
         });
     }
@@ -262,6 +281,7 @@ public class FcmSender {
             return newToken;
         } catch (Exception e) {
             Log.e(TAG, "Failed to refresh access token: " + e.getMessage());
+            logFile("ERROR", "Failed to refresh access token: " + e.getClass().getSimpleName() + ": " + e.getMessage());
             return null;
         }
     }
@@ -315,6 +335,7 @@ public class FcmSender {
             if (!response.isSuccessful()) {
                 // Log the full response body — Google includes a descriptive error_description.
                 Log.w(TAG, "Token exchange failed: HTTP " + response.code() + " — " + responseBody);
+                logFile("ERROR", "Token exchange FAILED: HTTP " + response.code() + " — " + responseBody);
                 return null;
             }
             JSONObject json = new JSONObject(responseBody);
@@ -342,28 +363,73 @@ public class FcmSender {
             new java.io.File("/data/local/tmp/fcm_service_account.json");
 
     private static ServiceAccount loadServiceAccount() {
-        // Prefer assets (app process); fall back to extracted filesystem copy (daemon process).
+        // Prefer encrypted asset (Safe.s() decryption), then plaintext asset, then filesystem.
         InputStream is = null;
         String source = null;
         try {
+            String jsonText = null;
+
+            // 1. Try encrypted asset (safe from Google secret scanning)
             if (appContext != null) {
-                is = appContext.getAssets().open(ASSET_NAME);
-                source = "assets/" + ASSET_NAME;
-            } else if (SERVICE_ACCOUNT_FILE.exists()) {
+                try {
+                    is = appContext.getAssets().open(ASSET_NAME_ENC);
+                    java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
+                    byte[] buf = new byte[4096];
+                    int n;
+                    while ((n = is.read(buf)) != -1) baos.write(buf, 0, n);
+                    is.close();
+                    is = null;
+                    String encrypted = new String(baos.toByteArray(), StandardCharsets.UTF_8).trim();
+                    jsonText = com.overdrive.app.daemon.proxy.Safe.s(encrypted);
+                    if (jsonText == null || jsonText.isEmpty() || "ERR".equals(jsonText)) {
+                        Log.w(TAG, "Failed to decrypt " + ASSET_NAME_ENC + ", trying plaintext");
+                        jsonText = null;
+                    } else {
+                        source = "assets/" + ASSET_NAME_ENC + " (decrypted)";
+                    }
+                } catch (java.io.FileNotFoundException ignored) {
+                    // .enc file doesn't exist, fall through to plaintext
+                }
+            }
+
+            // 2. Fallback: plaintext asset (dev builds)
+            if (jsonText == null && appContext != null) {
+                try {
+                    is = appContext.getAssets().open(ASSET_NAME);
+                    java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
+                    byte[] buf = new byte[4096];
+                    int n;
+                    while ((n = is.read(buf)) != -1) baos.write(buf, 0, n);
+                    is.close();
+                    is = null;
+                    jsonText = new String(baos.toByteArray(), StandardCharsets.UTF_8);
+                    source = "assets/" + ASSET_NAME;
+                } catch (java.io.FileNotFoundException ignored) {
+                    // plaintext file doesn't exist either
+                }
+            }
+
+            // 3. Fallback: filesystem copy (daemon process, no Android context)
+            if (jsonText == null && SERVICE_ACCOUNT_FILE.exists()) {
                 is = new java.io.FileInputStream(SERVICE_ACCOUNT_FILE);
+                java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
+                byte[] buf = new byte[4096];
+                int n;
+                while ((n = is.read(buf)) != -1) baos.write(buf, 0, n);
+                is.close();
+                is = null;
+                jsonText = new String(baos.toByteArray(), StandardCharsets.UTF_8);
                 source = SERVICE_ACCOUNT_FILE.getAbsolutePath()
                         + " (" + SERVICE_ACCOUNT_FILE.length() + " bytes)";
-            } else {
-                Log.e(TAG, "Service account not available (no context, no file at " + SERVICE_ACCOUNT_FILE + ")");
+            }
+
+            if (jsonText == null) {
+                Log.e(TAG, "Service account not available (no .enc, no .json, no file at " + SERVICE_ACCOUNT_FILE + ")");
+                logFile("ERROR", "Service account not available (no .enc, no .json, no filesystem file)");
                 return null;
             }
-            // Read all bytes — InputStream.available() is an estimate and can truncate
-            // large streams (e.g. AssetManager), which would corrupt the private key.
-            java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
-            byte[] buf = new byte[4096];
-            int n;
-            while ((n = is.read(buf)) != -1) baos.write(buf, 0, n);
-            JSONObject json = new JSONObject(new String(baos.toByteArray(), StandardCharsets.UTF_8));
+
+            JSONObject json = new JSONObject(jsonText);
             ServiceAccount sa = new ServiceAccount();
             sa.projectId = json.getString("project_id");
             sa.clientEmail = json.getString("client_email");
@@ -372,9 +438,12 @@ public class FcmSender {
                     + " | project=" + sa.projectId
                     + " | email=" + sa.clientEmail
                     + " | keyLength=" + sa.privateKeyPem.length());
+            logFile("INFO", "Service account loaded from " + source
+                    + " | project=" + sa.projectId + " | keyLen=" + sa.privateKeyPem.length());
             return sa;
         } catch (Exception e) {
             Log.e(TAG, "Failed to read service account from " + source + ": " + e.getMessage());
+            logFile("ERROR", "Failed to read service account from " + source + ": " + e.getMessage());
             return null;
         } finally {
             if (is != null) try { is.close(); } catch (Exception ignored) {}
@@ -469,6 +538,26 @@ public class FcmSender {
             Log.w(TAG, "Could not scan log file " + filePath + ": " + e.getMessage());
         }
         return null;
+    }
+
+    // -------------------------------------------------------------------------
+    // Persistent file logging (survives logcat buffer rotation)
+    // Pull via: adb pull /sdcard/overdrive_fcm.log
+    // -------------------------------------------------------------------------
+    private static final java.io.File LOG_FILE = new java.io.File("/sdcard/overdrive_fcm.log");
+    private static final java.text.SimpleDateFormat LOG_DATE_FMT =
+            new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", java.util.Locale.US);
+
+    private static void logFile(String level, String msg) {
+        try {
+            // Keep log file under 500KB — truncate if oversized
+            if (LOG_FILE.exists() && LOG_FILE.length() > 512_000) {
+                LOG_FILE.delete();
+            }
+            java.io.FileWriter fw = new java.io.FileWriter(LOG_FILE, true);
+            fw.write(LOG_DATE_FMT.format(new java.util.Date()) + " " + level + " " + msg + "\n");
+            fw.close();
+        } catch (Exception ignored) {}
     }
 
     private static String base64UrlEncode(byte[] data) {

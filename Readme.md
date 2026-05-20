@@ -218,6 +218,25 @@ If you want to use Zrok tunneling for remote access, you need your own Zrok invi
 
 ## Changelog
 
+### POC 1.08 — May 2026: WebView Unification, ROI Fix, Camera Arrows & Detection Counts
+
+**✨ Features**
+- **WebView Unification** — Events and Surveillance fragments now load the same web pages as the remote access portal via `WebViewFragment`, ensuring full feature parity between the on-device Android UI and the remote portal. The native `SentryConfigFragment` and its layout have been removed
+- **Camera Direction Arrow on Thumbnails** — Detection-frame thumbnails now show a directional arrow overlay in the upper-right corner indicating which camera captured the detection: ↑ Front, → Right, ↓ Rear, ← Left. Drawn as a white arrow inside a semi-transparent dark circle
+- **Detection Count in Event Badges** — Event listing badges now show how many times each object type was detected during the event (e.g. `3× 🚶 87%`). Count is tracked per YOLO frame across the motion sequence and stored in the `.ai.json` sidecar as a `count` field per detection type. The API and portal both propagate the count
+- **Camera Quadrant in .ai.json** — The `.ai.json` sidecar now includes a top-level `camera` field (e.g. `"camera":"front"`) identifying which camera produced the hero frame detection. Exposed via the recordings API as `camera` on each event
+- **FCM Payload Restructuring** — Motion-triggered events now send `action=live_view` with thumbnail only; video-ready events send `action=play_video` with `video_url` and `thumbnail_url`, enabling proper deep-link routing based on event state
+
+**🐛 Bug Fixes**
+- **ROI Filter Incorrect for Foveated Crops** — When using foveated crop (640×640 from the raw camera strip), detection coordinates were normalized against the crop window dimensions instead of the full camera quadrant. This meant objects outside the user-drawn ROI polygon could pass the filter when the foveated crop was offset from the quadrant origin. Fixed by transforming detection coordinates back to quadrant-normalized (0–1) space using the foveated crop's computed origin before polygon comparison
+- **Version Display "vunknown"** — The Android GUI and remote portal showed `vunknown` instead of the actual version. Root cause: a stale version file (`/data/local/tmp/overdrive_version`) persisted with the value `"unknown"` from a previous OTA state, and `core.js` blindly prepended `"v"`. Fixed in three places: `AppUpdater` skips `"unknown"` values and falls through to `BuildConfig.VERSION_NAME`; `SystemDaemon` overwrites stale/empty content on startup; `core.js` no longer double-prepends `"v"`
+
+**🧹 Cleanup**
+- Removed orphaned `SentryConfigFragment.kt` (971 lines) and `fragment_sentry_config.xml` (1568 lines) — both superseded by the WebView-based surveillance settings page
+- Removed obsolete `shouldOverrideUrlLoading` intercept for `events.html` from `WebViewFragment`
+
+---
+
 ### POC 1.07 — May 2026: AI Detection Pipeline & FCM Notification Image Fix
 
 **✨ Features**

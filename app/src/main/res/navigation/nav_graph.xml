@@ -47,9 +47,14 @@
 
     <fragment
         android:id="@+id/eventsFragment"
-        android:name="com.overdrive.app.ui.fragment.RecordingLibraryFragment"
+        android:name="com.overdrive.app.ui.fragment.WebViewFragment"
         android:label="Events"
-        tools:layout="@layout/fragment_recording_library" />
+        tools:layout="@layout/fragment_webview">
+        <argument
+            android:name="page_path"
+            app:argType="string"
+            android:defaultValue="/events.html" />
+    </fragment>
 
     <fragment
         android:id="@+id/videoPlayerFragment"

@@ -130,12 +130,16 @@ public class SurveillanceEngineGpu {
     private volatile int pendingDetectionFrameW = 0;
     private volatile int pendingDetectionFrameH = 0;
     private volatile com.overdrive.app.ai.Detection pendingDetectionBbox = null;  // best detection box (nullable)
+    private volatile int pendingDetectionQuadrant = -1;  // camera quadrant that produced the hero frame
     
     // BEST-PER-TYPE DETECTION TRACKING: Accumulates the highest-confidence detection
     // per object type (person, car, bike) across all YOLO runs during a motion sequence.
     // Written to the .ai.json sidecar at recording start. Max 3 entries.
     // Key = "person"|"car"|"bike", Value = confidence as integer percentage (0-100).
     private final java.util.Map<String, Integer> bestDetectionPerType =
+            java.util.Collections.synchronizedMap(new java.util.LinkedHashMap<>());
+    // Counts how many YOLO frames contained each object type during a motion sequence.
+    private final java.util.Map<String, Integer> detectionCountPerType =
             java.util.Collections.synchronizedMap(new java.util.LinkedHashMap<>());
     // Tracks the highest confidence seen across ALL types for hero frame selection.
     // The pendingDetectionFrame is only updated when a detection beats this value.
@@ -780,6 +784,7 @@ public class SurveillanceEngineGpu {
                 lastConfirmedAiLabel = "motion";
                 lastConfirmedAiConfidence = 1.0f;
                 bestDetectionPerType.clear();
+                detectionCountPerType.clear();
                 heroFrameConfidence = 0f;
                 int bestQ = pipelineV2.getHighestThreatQuadrant();
                 MotionPipelineV2.QuadrantResult bestR = bestQ >= 0 ? results[bestQ] : null;
@@ -935,6 +940,7 @@ public class SurveillanceEngineGpu {
                         firstMotionTime = 0;
                         peakThreatDuringSequence = 0;
                         bestDetectionPerType.clear();
+                        detectionCountPerType.clear();
                         heroFrameConfidence = 0f;
                     }
                     
@@ -1190,6 +1196,7 @@ public class SurveillanceEngineGpu {
                     firstMotionTime = 0;
                     peakThreatDuringSequence = 0;
                     bestDetectionPerType.clear();
+                    detectionCountPerType.clear();
                     heroFrameConfidence = 0f;
                 }
             }
@@ -1246,6 +1253,7 @@ public class SurveillanceEngineGpu {
                     firstMotionTime = 0;
                     peakThreatDuringSequence = 0;
                     bestDetectionPerType.clear();
+                    detectionCountPerType.clear();
                     heroFrameConfidence = 0f;
                 }
             }
@@ -1493,15 +1501,19 @@ public class SurveillanceEngineGpu {
             }
         } catch (Exception ignored) {}
         
+        // Foveated crop centroid — captured for the ROI coordinate transform in aiExecutor.
+        // Block coords (0-9 x, 0-6 y) of the center of the foveated crop window.
+        float fovCentroidX = 0, fovCentroidY = 0;
+        
         if (foveatedCropper != null && foveatedCropper.isInitialized() && cameraTextureId >= 0
                 && ((motionResult != null && motionResult.componentSize > 0) || heartbeatHasTrackerPos)) {
             // Foveated path: 640×640 from raw strip (called on GL thread — safe)
             // Use motion centroid if available, otherwise fall back to tracker position
-            float centroidX = (motionResult != null && motionResult.componentSize > 0)
+            fovCentroidX = (motionResult != null && motionResult.componentSize > 0)
                     ? motionResult.centroidX : trackerCentroidX;
-            float centroidY = (motionResult != null && motionResult.componentSize > 0)
+            fovCentroidY = (motionResult != null && motionResult.componentSize > 0)
                     ? motionResult.centroidY : trackerCentroidY;
-            byte[] foveatedRgb = foveatedCropper.crop(cameraTextureId, quadrant, centroidX, centroidY);
+            byte[] foveatedRgb = foveatedCropper.crop(cameraTextureId, quadrant, fovCentroidX, fovCentroidY);
             if (foveatedRgb != null) {
                 qW = FoveatedCropper.CROP_SIZE;
                 qH = FoveatedCropper.CROP_SIZE;
@@ -1543,6 +1555,8 @@ public class SurveillanceEngineGpu {
         }
         
         final boolean usedFoveated = (qW == FoveatedCropper.CROP_SIZE);
+        final float fovCX = fovCentroidX;
+        final float fovCY = fovCentroidY;
         
         // Capture whether this YOLO run is a heartbeat verification BEFORE the lambda.
         // The C++ tracker's needsYoloVerification flag is mutated by trackerUpdate() on
@@ -1678,15 +1692,48 @@ public class SurveillanceEngineGpu {
                     // If a per-quadrant ROI polygon is configured, only keep detections
                     // whose bounding box at least partially intersects the polygon.
                     // Detection coords are in the crop's pixel space; normalize to 0-1
-                    // relative to the crop dimensions for polygon comparison.
+                    // relative to the QUADRANT for polygon comparison.
+                    //
+                    // FIX: When using foveated crop (640×640), detection coords are in
+                    // crop-local space. The crop is a 640×640 window from the 1280×960
+                    // camera, centered on the motion centroid. We must transform detection
+                    // coords back to quadrant-normalized (0-1) space to match the ROI
+                    // polygon which was drawn on the full quadrant view.
                     if (config != null && config.isRoiEnabled(qIdx)) {
                         float[][] roiPoly = config.getRoiPolygon(qIdx);
                         if (roiPoly != null && roiPoly.length >= 3) {
+                            // Precompute foveated crop origin in quadrant-normalized coords.
+                            // The crop covers 640/1280 = 0.5 of the camera width and
+                            // 640/960 = 0.667 of the camera height. Since the quadrant
+                            // is a proportional downscale of the camera, normalized coords
+                            // are the same in both spaces.
+                            final float fovOriginX;
+                            final float fovOriginY;
+                            final float fovScaleX;
+                            final float fovScaleY;
+                            if (usedFoveated) {
+                                float quadPixelX = (fovCX + 0.5f) * 32.0f;
+                                float quadPixelY = (fovCY + 0.5f) * 32.0f;
+                                float camNormCenterX = quadPixelX / 320.0f;
+                                float camNormCenterY = quadPixelY / 240.0f;
+                                float cropW = 640.0f / 1280.0f;  // 0.5
+                                float cropH = 640.0f / 960.0f;   // 0.667
+                                fovOriginX = Math.max(0f, Math.min(camNormCenterX - cropW / 2f, 1f - cropW));
+                                fovOriginY = Math.max(0f, Math.min(camNormCenterY - cropH / 2f, 1f - cropH));
+                                fovScaleX = cropW;
+                                fovScaleY = cropH;
+                            } else {
+                                fovOriginX = 0f;
+                                fovOriginY = 0f;
+                                fovScaleX = 1f;
+                                fovScaleY = 1f;
+                            }
                             motionFiltered.removeIf(det -> {
-                                float nx1 = (float) det.getX() / qW;
-                                float ny1 = (float) det.getY() / qH;
-                                float nx2 = (float) (det.getX() + det.getW()) / qW;
-                                float ny2 = (float) (det.getY() + det.getH()) / qH;
+                                // Transform detection coords to quadrant-normalized 0-1 space
+                                float nx1 = fovOriginX + ((float) det.getX() / qW) * fovScaleX;
+                                float ny1 = fovOriginY + ((float) det.getY() / qH) * fovScaleY;
+                                float nx2 = fovOriginX + ((float) (det.getX() + det.getW()) / qW) * fovScaleX;
+                                float ny2 = fovOriginY + ((float) (det.getY() + det.getH()) / qH) * fovScaleY;
                                 float ncx = (nx1 + nx2) / 2f;
                                 float ncy = (ny1 + ny2) / 2f;
                                 // Pass if any of: center, 4 corners, or any polygon vertex inside bbox
@@ -1822,6 +1869,7 @@ public class SurveillanceEngineGpu {
                             if (prev == null || confPct > prev) {
                                 bestDetectionPerType.put(typeName, confPct);
                             }
+                            detectionCountPerType.merge(typeName, 1, Integer::sum);
                             // Best overall for FCM label: prefer person, then highest conf
                             if (bestForLabel == null) {
                                 bestForLabel = d;
@@ -1857,6 +1905,7 @@ public class SurveillanceEngineGpu {
                                 pendingDetectionFrameW = qW;
                                 pendingDetectionFrameH = qH;
                                 pendingDetectionBbox = bestForLabel;
+                                pendingDetectionQuadrant = qIdx;
                             }
                         }
                         
@@ -2412,6 +2461,8 @@ public class SurveillanceEngineGpu {
         final com.overdrive.app.ai.Detection thumbBbox = pendingDetectionBbox;
         // Snapshot best-per-type map before lambda (map is mutated by AI executor)
         final java.util.Map<String, Integer> bestPerType = new java.util.LinkedHashMap<>(bestDetectionPerType);
+        final java.util.Map<String, Integer> countPerType = new java.util.LinkedHashMap<>(detectionCountPerType);
+        final int thumbQuadrant = pendingDetectionQuadrant;
         pendingDetectionFrame = null;  // release reference; keep detection label/confidence
         if (thumbFrame != null && thumbW > 0 && thumbH > 0) {
             final File thumbFile = new File(eventOutputDir,
@@ -2447,6 +2498,50 @@ public class SurveillanceEngineGpu {
                                 (thumbBbox.getY() + thumbBbox.getH()) * scaleY,
                                 paint);
                     }
+                    // Draw camera direction arrow overlay in upper-right corner.
+                    // Q0=front(↑), Q1=right(→), Q2=rear(↓), Q3=left(←)
+                    if (thumbQuadrant >= 0 && thumbQuadrant <= 3) {
+                        android.graphics.Canvas c = new android.graphics.Canvas(mutable);
+                        float arrowSize = Math.max(24, thumbW / 16f);
+                        float margin = arrowSize * 0.5f;
+                        float cx = thumbW - margin - arrowSize / 2f;
+                        float cy = margin + arrowSize / 2f;
+                        // Semi-transparent dark circle background
+                        android.graphics.Paint bg = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+                        bg.setColor(android.graphics.Color.argb(160, 0, 0, 0));
+                        bg.setStyle(android.graphics.Paint.Style.FILL);
+                        c.drawCircle(cx, cy, arrowSize * 0.6f, bg);
+                        // Arrow
+                        android.graphics.Paint ap = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+                        ap.setColor(android.graphics.Color.WHITE);
+                        ap.setStyle(android.graphics.Paint.Style.FILL);
+                        android.graphics.Path path = new android.graphics.Path();
+                        float half = arrowSize * 0.35f;
+                        switch (thumbQuadrant) {
+                            case 0: // front — up arrow
+                                path.moveTo(cx, cy - half);
+                                path.lineTo(cx - half * 0.7f, cy + half * 0.5f);
+                                path.lineTo(cx + half * 0.7f, cy + half * 0.5f);
+                                break;
+                            case 1: // right — right arrow
+                                path.moveTo(cx + half, cy);
+                                path.lineTo(cx - half * 0.5f, cy - half * 0.7f);
+                                path.lineTo(cx - half * 0.5f, cy + half * 0.7f);
+                                break;
+                            case 2: // rear — down arrow
+                                path.moveTo(cx, cy + half);
+                                path.lineTo(cx - half * 0.7f, cy - half * 0.5f);
+                                path.lineTo(cx + half * 0.7f, cy - half * 0.5f);
+                                break;
+                            case 3: // left — left arrow
+                                path.moveTo(cx - half, cy);
+                                path.lineTo(cx + half * 0.5f, cy - half * 0.7f);
+                                path.lineTo(cx + half * 0.5f, cy + half * 0.7f);
+                                break;
+                        }
+                        path.close();
+                        c.drawPath(path, ap);
+                    }
                     // Scale to standard thumbnail dimensions
                     android.graphics.Bitmap scaled = android.graphics.Bitmap.createScaledBitmap(
                             mutable, 320, 180, true);
@@ -2475,11 +2570,20 @@ public class SurveillanceEngineGpu {
                             Integer c = bestPerType.get(t);
                             if (c != null) {
                                 if (!first) sb.append(',');
-                                sb.append("{\"type\":\"").append(t).append("\",\"conf\":").append(c).append('}');
+                                sb.append("{\"type\":\"").append(t).append("\",\"conf\":").append(c);
+                                Integer cnt = countPerType.get(t);
+                                if (cnt != null && cnt > 1) {
+                                    sb.append(",\"count\":").append(cnt);
+                                }
+                                sb.append('}');
                                 first = false;
                             }
                         }
-                        sb.append("]}");
+                        sb.append(']');
+                        if (thumbQuadrant >= 0 && thumbQuadrant < MotionPipelineV2.QUADRANT_NAMES.length) {
+                            sb.append(",\"camera\":\"").append(MotionPipelineV2.QUADRANT_NAMES[thumbQuadrant]).append('"');
+                        }
+                        sb.append('}');
                         try (java.io.FileOutputStream fos = new java.io.FileOutputStream(aiFile)) {
                             fos.write(sb.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
                         }
@@ -2555,7 +2659,9 @@ public class SurveillanceEngineGpu {
         currentEventFile = null;
         pendingDetectionFrame = null;
         pendingDetectionBbox = null;
+        pendingDetectionQuadrant = -1;
         bestDetectionPerType.clear();
+        detectionCountPerType.clear();
         heroFrameConfidence = 0f;
         logger.info("Recording stopped, motion detection continues");
     }
@@ -2590,6 +2696,7 @@ public class SurveillanceEngineGpu {
         lastAiConfirmationTimeMs = 0;  // Reset AI confirmation gate
         peakThreatDuringSequence = 0;
         bestDetectionPerType.clear();
+        detectionCountPerType.clear();
         heroFrameConfidence = 0f;
         
         // Reset post-suppression baseline refresh tracking

@@ -370,11 +370,21 @@ public class SystemDaemon {
         // This ensures the encoder is created with the correct settings
         HttpServer.loadPersistedSettings();
         
-        // Seed version file if it doesn't exist yet (daemon runs as shell, can write /data/local/tmp/)
-        // This ensures the /status API always returns the correct app version
+        // Seed version file if it doesn't exist or contains a stale "unknown" value.
+        // This ensures the /status API always returns the correct app version.
         try {
             java.io.File versionFile = new java.io.File(com.overdrive.app.updater.AppUpdater.VERSION_FILE);
-            if (!versionFile.exists()) {
+            boolean needsWrite = !versionFile.exists();
+            if (!needsWrite && versionFile.exists()) {
+                java.io.BufferedReader br = new java.io.BufferedReader(new java.io.FileReader(versionFile));
+                String existing = br.readLine();
+                br.close();
+                if (existing == null || existing.trim().isEmpty()
+                        || "unknown".equalsIgnoreCase(existing.trim())) {
+                    needsWrite = true;
+                }
+            }
+            if (needsWrite) {
                 java.io.FileWriter fw = new java.io.FileWriter(versionFile);
                 fw.write(com.overdrive.app.BuildConfig.VERSION_NAME);
                 fw.close();

@@ -522,6 +522,8 @@ public class RecordingsApiHandler {
                                 }
                             }
                             if (aiArr.length() > 0) rec.put("aiDetections", aiArr);
+                            String cam = aiJson.optString("camera", "");
+                            if (!cam.isEmpty()) rec.put("camera", cam);
                         } catch (Exception ignored) {}
                     }
                 }
@@ -534,6 +536,7 @@ public class RecordingsApiHandler {
                         org.json.JSONArray events = sidecarJson.optJSONArray("events");
                         // Build per-class max-confidence map from event spans
                         java.util.Map<String, Float> maxConf = new java.util.HashMap<>();
+                        java.util.Map<String, Integer> spanCount = new java.util.HashMap<>();
                         if (events != null) {
                             for (int i = 0; i < events.length(); i++) {
                                 org.json.JSONObject ev = events.optJSONObject(i);
@@ -543,6 +546,9 @@ public class RecordingsApiHandler {
                                 if ((evType.equals("person") || evType.equals("car") || evType.equals("bike"))
                                         && conf > maxConf.getOrDefault(evType, 0f)) {
                                     maxConf.put(evType, (float) conf);
+                                }
+                                if (evType.equals("person") || evType.equals("car") || evType.equals("bike")) {
+                                    spanCount.merge(evType, 1, Integer::sum);
                                 }
                             }
                         }
@@ -596,10 +602,24 @@ public class RecordingsApiHandler {
                                     org.json.JSONObject entry = new org.json.JSONObject();
                                     entry.put("type", cls);
                                     entry.put("conf", Math.round(maxConf.get(cls) * 100));
+                                    int cnt = spanCount.getOrDefault(cls, 0);
+                                    if (cnt > 1) entry.put("count", cnt);
                                     aiArr.put(entry);
                                 }
                             }
                             rec.put("aiDetections", aiArr);
+                            // Read camera direction from .ai.json companion
+                            if (!rec.has("camera")) {
+                                File aiFile2 = new File(file.getParentFile(), baseName + ".ai.json");
+                                if (aiFile2.exists()) {
+                                    try {
+                                        String aiStr = new String(java.nio.file.Files.readAllBytes(aiFile2.toPath()),
+                                                java.nio.charset.StandardCharsets.UTF_8);
+                                        String cam = new org.json.JSONObject(aiStr).optString("camera", "");
+                                        if (!cam.isEmpty()) rec.put("camera", cam);
+                                    } catch (Exception ignored2) {}
+                                }
+                            }
                         }
                     } catch (Exception ignored) {}
                 }

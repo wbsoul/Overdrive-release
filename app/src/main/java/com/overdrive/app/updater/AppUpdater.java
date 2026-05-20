@@ -747,7 +747,8 @@ public class AppUpdater {
                 java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.FileReader(f));
                 String version = reader.readLine();
                 reader.close();
-                if (version != null && !version.trim().isEmpty()) {
+                if (version != null && !version.trim().isEmpty()
+                        && !"unknown".equalsIgnoreCase(version.trim())) {
                     return version.trim();
                 }
             }

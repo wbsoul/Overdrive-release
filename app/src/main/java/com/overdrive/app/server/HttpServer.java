@@ -86,26 +86,56 @@ public class HttpServer {
             // Extract overlay icons for telemetry overlay
             extractAssetDir(assetManager, "overlay", new File("/data/local/tmp/overlay"));
             
-            // Extract FCM service account JSON so the daemon process can read it
-            // (daemon has no Android context, can't open assets directly)
+            // Extract FCM service account for daemon process.
+            // Prefer encrypted .enc asset (decrypt via Safe.s()), fall back to plaintext .json.
+            // The daemon has no Android context so it reads from /data/local/tmp/.
             try {
                 File fcmSaFile = new File("/data/local/tmp/fcm_service_account.json");
-                // Delete any existing locked copy before writing. setWritable(true) is a no-op
-                // when the file is owned by a different UID (e.g. after app reinstall), causing
-                // FileOutputStream to throw EACCES. /data/local/tmp is world-writable without a
-                // sticky bit, so delete() always succeeds regardless of the file's owner.
                 fcmSaFile.delete();
-                try (InputStream in = assetManager.open("fcm_service_account.json");
-                     java.io.FileOutputStream fos = new java.io.FileOutputStream(fcmSaFile)) {
+                String jsonText = null;
+
+                // Try encrypted asset first
+                try {
+                    InputStream encIn = assetManager.open("fcm_service_account.enc");
+                    java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
                     byte[] buf = new byte[4096];
                     int n;
-                    while ((n = in.read(buf)) != -1) fos.write(buf, 0, n);
+                    while ((n = encIn.read(buf)) != -1) baos.write(buf, 0, n);
+                    encIn.close();
+                    String encrypted = new String(baos.toByteArray(), java.nio.charset.StandardCharsets.UTF_8).trim();
+                    jsonText = com.overdrive.app.daemon.proxy.Safe.s(encrypted);
+                    if (jsonText == null || jsonText.isEmpty() || "ERR".equals(jsonText)) {
+                        jsonText = null;
+                    } else {
+                        SystemDaemon.log("Decrypted fcm_service_account.enc for daemon");
+                    }
+                } catch (java.io.FileNotFoundException ignored) {}
+
+                // Fall back to plaintext asset
+                if (jsonText == null) {
+                    try {
+                        InputStream in = assetManager.open("fcm_service_account.json");
+                        java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
+                        byte[] buf = new byte[4096];
+                        int n;
+                        while ((n = in.read(buf)) != -1) baos.write(buf, 0, n);
+                        in.close();
+                        jsonText = new String(baos.toByteArray(), java.nio.charset.StandardCharsets.UTF_8);
+                        SystemDaemon.log("Using plaintext fcm_service_account.json for daemon");
+                    } catch (java.io.FileNotFoundException ignored) {}
                 }
-                fcmSaFile.setReadable(true, false);
-                // Do NOT call setWritable(false) — that permanently blocks re-extraction on restart.
-                SystemDaemon.log("Extracted fcm_service_account.json to " + fcmSaFile.getAbsolutePath());
+
+                if (jsonText != null) {
+                    try (java.io.FileOutputStream fos = new java.io.FileOutputStream(fcmSaFile)) {
+                        fos.write(jsonText.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                    }
+                    fcmSaFile.setReadable(true, false);
+                    SystemDaemon.log("Extracted fcm_service_account.json to " + fcmSaFile.getAbsolutePath());
+                } else {
+                    SystemDaemon.log("No FCM service account asset found (.enc or .json)");
+                }
             } catch (Exception e) {
-                SystemDaemon.log("Could not extract fcm_service_account.json: " + e.getMessage());
+                SystemDaemon.log("Could not extract fcm_service_account: " + e.getMessage());
             }
 
             // Extract BYD cloud crypto tables

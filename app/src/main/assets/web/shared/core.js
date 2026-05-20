@@ -64,7 +64,10 @@ BYD.core = {
             // App version
             if (status.appVersion) {
                 const el = document.getElementById('appVersion');
-                if (el) el.textContent = 'v' + status.appVersion;
+                if (el) {
+                    const v = status.appVersion;
+                    el.textContent = v.startsWith('v') || v.startsWith('V') ? v : 'v' + v;
+                }
             }
 
             // 12V Battery

@@ -349,6 +349,7 @@ BYD.events = {
                 const icons = { person: '🚶', car: '🚗', bike: '🚲' };
                 aiHtml = rec.aiDetections.map(d =>
                     '<span class="ai-badge ai-badge--' + d.type + '">' +
+                    (d.count > 1 ? d.count + '×\u202F' : '') +
                     icons[d.type] + (d.conf > 0 ? '\u202F' + d.conf + '%' : '') +
                     '</span>'
                 ).join('');
